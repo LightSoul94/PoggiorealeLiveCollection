@@ -60,27 +60,8 @@ tinymce.init({
     plugins: 'lists link image charmap preview anchor',
     toolbar: 'undo redo | bold italic | forecolor | fontsize | alignleft aligncenter alignright alignjustify | bullist numlist outdent indent | link',
     setup: function (editor) {
-        editor.on('keydown', function (e) {
-            if (e.keyCode === 13) {
-                charCounter = 0;
-                e.preventDefault(); // Prevent default behavior (inserting <p> tag)
-                editor.execCommand('InsertLineBreak'); // Insert <br> tag instead
-            }
-            // Gestisce il decremento del contatore per backspace o cancella
-            if (e.keyCode === 8 || e.keyCode === 46) { // Backspace o Delete
-                charCounter = Math.max(0, charCounter - 1); // Decrementa ma non sotto zero
-            } else if (e.keyCode != 13) { // New line
-                charCounter++; // Incrementa il contatore per ogni altro tasto
-            }
-            // console.log(charCounter);
-            if (charCounter == 39) {
-                editor.execCommand('InsertLineBreak');
-                charCounter = 1;
-            }
-        });
         editor.on('change', function () {
             editor.save();
-            charCounter = 0;
         });
     },
     // Impostazione per mantenere i tag <br> e gli spazi non interrompibili

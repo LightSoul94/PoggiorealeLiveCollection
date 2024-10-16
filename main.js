@@ -848,7 +848,6 @@ async function initializeFirebase() {
 
             $(`#song-category`).val(categoria);
 
-            let charCounter = 0;
             tinymce.init({
                 selector: `#edit-textarea-${songId}`,
                 force_br_newlines: true,
@@ -856,19 +855,12 @@ async function initializeFirebase() {
                 plugins: 'lists link preview',
                 toolbar: 'undo redo | bold italic | forecolor | fontsize | alignleft aligncenter alignright alignjustify | bullist numlist outdent indent | link',
                 setup: function (editor) {
-                    editor.on('keydown', handleKeydownEvent);
                     editor.on('change', function () {
                         editor.save();
-                        charCounter = 0;
                     });
                 }
             });
         };
-
-
-
-        let charCounter = 0;
-        let debounceTimeout;
 
         // Funzione per annullare la modifica
         window.cancelEdit = async function (songId) {
@@ -971,25 +963,6 @@ async function initializeFirebase() {
                     'error'
                 );
             }
-        }
-
-        function handleKeydownEvent(e) {
-            if (e.keyCode === 13) {
-                e.preventDefault();
-                tinymce.activeEditor.execCommand('InsertLineBreak');
-            } else if (e.keyCode === 8 || e.keyCode === 46) {
-                charCounter = Math.max(0, charCounter - 1);
-            } else {
-                charCounter++;
-            }
-
-            if (debounceTimeout) clearTimeout(debounceTimeout);
-            debounceTimeout = setTimeout(() => {
-                if (charCounter >= 39) {
-                    tinymce.activeEditor.execCommand('InsertLineBreak');
-                    charCounter = 0;
-                }
-            }, 200); // 200 ms di ritardo per evitare gestione continua
         }
 
 
