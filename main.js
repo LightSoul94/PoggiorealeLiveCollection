@@ -521,10 +521,13 @@ async function initializeFirebase() {
                 </div>
             
                 <div class="d-flex flex-row">
+                    <h5 id="title-${song.id}" class="mb-4">
+                        ${song.numero}. ${song.titolo}
+                    </h5>
+                </div>
+
+                <div class="d-flex flex-row">
                     <div class="col p-1" id="song-content-${song.id}">
-                        <h5 id="title-${song.id}" class="mb-4">
-                            ${song.numero}. ${song.titolo}
-                        </h5>
                         ${song.html}
                     </div>
                     <div class="col-3 p-1 admin" id="editSection-${song.id}" style="display:none">
@@ -556,6 +559,37 @@ async function initializeFirebase() {
             songListHTML += "</ul>";
 
             $('#songs-list').html(songListHTML);
+
+            // Aggiungi un listener su ciascun documento della raccolta
+            querySnapshot.forEach((songDoc) => {
+                const songRef = doc(raccoltaRef, songDoc.id);
+                onSnapshot(songRef, (doc) => {
+                    if (doc.exists()) {
+                        const updatedData = doc.data();
+                        const songHTML = updatedData.html;
+                        const songId = doc.id;
+                        // const songNumber = updatedData.numero ? updatedData.numero : 'Senza Numero';
+                        // const songTitle = updatedData.titolo ? updatedData.titolo : 'Senza Titolo';
+                        
+                        
+                        // Aggiorna il contenuto del brano nell’interfaccia
+                        $(`#song-content-${songId}`).html(songHTML);
+                        
+
+                        // Aggiorna eventuali altre informazioni come ultima modifica, trasposizione, ecc.
+                        const lastEditDate = updatedData.ultimaModifica 
+                            ? updatedData.ultimaModifica.toDate().toLocaleString('it-IT', { dateStyle: 'short', timeStyle: 'short' }) 
+                            : '-';
+
+                        $(`#lastEditLabel-${songId}`).text(`Ultima modifica: ${lastEditDate}`);
+
+                        $(`#transpose-value-${songId}`).text(updatedData.transVal || 0);
+                    } else {
+                        // Rimuovi il brano dall’interfaccia se non esiste più
+                        $(`#${songDoc.id}`).remove();
+                    }
+                });
+            });
 
             const adminCookie = getCookie("isAdmin");
             if (adminCookie === "1") {
@@ -600,10 +634,6 @@ async function initializeFirebase() {
             $('#transpose-value-' + songId).text(transposeValues[songId]); // Aggiorna la label visualizzata
             transpose(songId, 2); // Trasponi di 1 semitono per il brano specifico
             updateSongInFirestore(songId, currentSearchQuery); // Passa il valore di ricerca corrente
-            //Ripristina titolo
-            const title = $(`#${songId}`).attr('titolo');
-            const number = $(`#${songId}`).attr('numero');
-            $(`#song-content-${songId}`).prepend(`<h5 id="title-${songId}" class="mb-4">${number}. ${title}</h5>`);
         };
         // Funzione per gestire l'incremento di semitoni
         window.transposeUp = function (songId) {
@@ -612,10 +642,6 @@ async function initializeFirebase() {
             $('#transpose-value-' + songId).text(transposeValues[songId]); // Aggiorna la label visualizzata
             transpose(songId, 1); // Trasponi di 1 semitono per il brano specifico
             updateSongInFirestore(songId, currentSearchQuery); // Passa il valore di ricerca corrente
-            //Ripristina titolo
-            const title = $(`#${songId}`).attr('titolo');
-            const number = $(`#${songId}`).attr('numero');
-            $(`#song-content-${songId}`).prepend(`<h5 id="title-${songId}" class="mb-4">${number}. ${title}</h5>`);
         };
 
         // Funzione per gestire l'aumento di semitoni
@@ -625,10 +651,6 @@ async function initializeFirebase() {
             $('#transpose-value-' + songId).text(transposeValues[songId]); // Aggiorna la label visualizzata
             transpose(songId, -1); // Trasponi di -1 semitono per il brano specifico
             updateSongInFirestore(songId, currentSearchQuery); // Passa il valore di ricerca corrente
-            //Ripristina titolo
-            const title = $(`#${songId}`).attr('titolo');
-            const number = $(`#${songId}`).attr('numero');
-            $(`#song-content-${songId}`).prepend(`<h5 id="title-${songId}" class="mb-4">${number}. ${title}</h5>`);
         };
         // Funzione per gestire la diminuzione di toni
         window.transposeDown2 = function (songId) {
@@ -637,10 +659,6 @@ async function initializeFirebase() {
             $('#transpose-value-' + songId).text(transposeValues[songId]); // Aggiorna la label visualizzata
             transpose(songId, -2); // Trasponi di -2 semitoni per il brano specifico
             updateSongInFirestore(songId, currentSearchQuery); // Passa il valore di ricerca corrente
-            //Ripristina titolo
-            const title = $(`#${songId}`).attr('titolo');
-            const number = $(`#${songId}`).attr('numero');
-            $(`#song-content-${songId}`).prepend(`<h5 id="title-${songId}" class="mb-4">${number}. ${title}</h5>`);
         };
 
         // Funzione per trasporre solo le note del brano con l'ID specifico
@@ -845,7 +863,7 @@ async function initializeFirebase() {
             $("#song-collection").val(raccoltaSelezionata);
             
             // seleziona tempo attuale
-            $("#song-tempo").val(tempo);
+            $(`#song-tempo-${songId}`).val(tempo);
 
             //Inizializza Tagify
             initializeTagify(songId);
