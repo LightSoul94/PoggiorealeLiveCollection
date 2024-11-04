@@ -167,15 +167,17 @@ $(document).ready(async function () {
     $('#save-song').click(function () {
         let raccolta = $('#song-collection').val();
         let categoriesMap = $('#song-categories').val();
-        let number = $('#numero').val();
+        let tempo = $('#tempo').val();
+        let bpm = parseInt($('#bpm').val(), 10);
+        let number = parseInt($('#numero').val(), 10);
         let title = $('#titolo').val();
         let songHTML = tinymce.get('song-editor').getContent();
     
         // Verifica che tutti i campi obbligatori siano compilati
-        if (!raccolta || !categoriesMap || !number || !title || !songHTML) {
+        if (!raccolta || !categoriesMap || !tempo || !bpm || !number || !title || !songHTML) {
             Swal.fire({
                 title: 'Errore!',
-                text: 'Per favore, compila tutti i campi obbligatori prima di salvare.',
+                text: 'Per favore, compila tutti i campi prima di salvare.',
                 icon: 'error',
                 confirmButtonText: 'OK'
             });
@@ -187,7 +189,7 @@ $(document).ready(async function () {
         let categories = parsedCategories.map(item => Object.values(item)[0]);
     
         // Chiama la funzione di salvataggio solo se tutti i campi sono validi
-        saveSong(raccolta, categories, number, title, songHTML);
+        saveSong(raccolta, categories, tempo, bpm, number, title, songHTML);
     });
     
 
@@ -221,7 +223,7 @@ $(document).ready(async function () {
         return tempDiv.innerHTML;
     }
 
-    async function saveSong(raccolta, categories, number, title, songHTML) {
+    async function saveSong(raccolta, categories, tempo, bpm, number, title, songHTML) {
         try {
             const clienteRef = doc(db, "Clienti", idCliente);
             const clienteDoc = await getDoc(clienteRef);
@@ -269,6 +271,8 @@ $(document).ready(async function () {
         
             if (exists && docId) {
                 await setDoc(doc(snapRaccolta, docId), {
+                    tempo: tempo,
+                    bpm: bpm,
                     numero: number,
                     titolo: title,
                     categorie: categories,
@@ -278,6 +282,8 @@ $(document).ready(async function () {
                 }, { merge: true });
             } else {
                 docRef = await addDoc(snapRaccolta, {
+                    tempo: tempo,
+                    bpm: bpm,
                     numero: number,
                     titolo: title,
                     categorie: categories,

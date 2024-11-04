@@ -38,8 +38,7 @@ async function initializeFirebase() {
         // Riferimento alla barra di ricerca della raccolta
         // Caricamento cliente
         const clienteRef = doc(db, "Clienti", idCliente);
-        const dataCliente = await getDoc(clienteRef);
-
+        
 
         // Funzione per esportare in PDF la lista completa o solo i risultati della ricerca
         window.exportToPDF = function () {
@@ -249,7 +248,6 @@ async function initializeFirebase() {
                 // Ascolta gli eventi di input nella barra di ricerca
                 $('#search-bar').on('input', async function () {
                     const searchQuery = $(this).val().toLowerCase();
-                    const isWordSearch = $('#wordSearch').prop('checked');
 
                     // Recupera il documento del cliente
                     const clienteRef = doc(db, "Clienti", idCliente);
@@ -354,9 +352,8 @@ async function initializeFirebase() {
         let transposeValues = {};
 
         async function loadAllSongsInRealtime() {
-            const adminCookie = getCookie("isAdmin");
             const clienteRef = doc(db, "Clienti", idCliente);
-
+            
             // Recupera i settings per determinare quale raccolta caricare
             const clienteSnap = await getDoc(clienteRef);
             if (!clienteSnap.exists()) {
@@ -364,7 +361,9 @@ async function initializeFirebase() {
                 return;
             } else {
                 const selectedRaccolta = clienteSnap.data().settings.raccoltaSelezionata;
-                loadCollectionSongs(selectedRaccolta);
+                const searchQuery = clienteSnap.data().settings.query.toLowerCase();
+                await loadCollectionSongs(selectedRaccolta);
+                filterSongs(searchQuery, selectedRaccolta);
             }
 
 
@@ -763,9 +762,9 @@ async function initializeFirebase() {
         // Funzione per modificare il brano selezionato
         window.editSong = async function (songId) {
             const raccoltaSelezionata = $(`#${songId}`).attr("raccolta")
+            const tempo = $(`#${songId}`).attr("tempo")
+            const bpm = $(`#${songId}`).attr("bpm")
             const objTitoloCanzone = $(`#title-${songId}`);
-            const categorieAttr = $(`#${songId}`).attr("categorie") || ""; // Ottieni le categorie o usa stringa vuota se non esiste
-            const categoriePreesistenti = categorieAttr.trim().split(/\s+/); // Separa le categorie
             const dataInserimento = $(`#${songId}`).attr("dataInserimento") ?? '-';
             const lastEdit = $(`#${songId}`).attr("ultimamodifica") ?? '-';
             const songContentDiv = $(`#song-content-${songId}`);
@@ -811,8 +810,8 @@ async function initializeFirebase() {
                     </div>
                     <div class="d-flex">
                         <div class="form-group mr-2">
-                            <label for="tempo">Tempo:</label>
-                            <select id="tempo" class="form-control">
+                            <label for="song-tempo-${songId}">Tempo:</label>
+                            <select id="song-tempo-${songId}" class="form-control">
                                 <option value="" selected disabled>Seleziona il tempo</option>
                                 <option value="2/4">2/4</option>
                                 <option value="3/4">3/4</option>
@@ -821,8 +820,8 @@ async function initializeFirebase() {
                             </select>
                         </div>
                         <div class="form-group">
-                            <label for="bpm">BPM:</label>
-                            <input id="bpm" class="form-control" type="number" min="40" max="300" placeholder="Inserisci BPM">
+                            <label for="bpm-${songId}">BPM:</label>
+                            <input id="bpm-${songId}" class="form-control" type="number" min="40" max="300" placeholder="Inserisci BPM" value="${bpm ?? ''}">
                         </div>
                     </div>
                     <div class="d-flex col-12 mb-2 pr-2 pl-0">
@@ -844,6 +843,9 @@ async function initializeFirebase() {
 
             // attiva la raccolta attuale
             $("#song-collection").val(raccoltaSelezionata);
+            
+            // seleziona tempo attuale
+            $("#song-tempo").val(tempo);
 
             //Inizializza Tagify
             initializeTagify(songId);
@@ -910,13 +912,13 @@ async function initializeFirebase() {
             $('.tagify__tag-text').each(function () {
                 categorie.push($(this).text());
             });
-            let tempo = $(`#${songId}`).attr('tempo');
-            let bpm = $(`#${songId}`).attr('bpm');
-            let number = $(`#numero-${songId}`).val();
+            let tempo = $(`#song-tempo-${songId}`).val();
+            let bpm = parseInt($(`#bpm-${songId}`).val(), 10);
+            let number = parseInt($(`#numero-${songId}`).val(), 10);
             let title = $(`#titolo-${songId}`).val();
             let songHTML = tinymce.get(`edit-textarea-${songId}`).getContent();
 
-            if (!songHTML.trim() || !title.trim() || !number || categorie.length === 0 || !raccoltaSelezionata) {
+            if (!songHTML.trim() || !title.trim() || !tempo || !bpm || !number || categorie.length === 0 || !raccoltaSelezionata) {
                 Swal.fire({
                     icon: 'warning',
                     title: 'Attenzione',
@@ -952,6 +954,8 @@ async function initializeFirebase() {
 
                 // Aggiungi o aggiorna la canzone nella sottocollezione
                 await setDoc(songDocRef, {
+                    tempo: tempo,
+                    bpm: bpm,
                     numero: number,
                     titolo: title,
                     html: songHTML,
