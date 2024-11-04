@@ -526,14 +526,20 @@ async function initializeFirebase() {
                         </button>
     
                         <div class="mt-5" id="transposer-${song.id}">
+                            <button class="btn btn-outline-secondary m-0 p-3 col-12" onclick="transposeUp2('${song.id}')">
+                            +2
+                            </button>
                             <button class="btn btn-outline-secondary m-0 p-3 col-12" onclick="transposeUp('${song.id}')">
-                            +
+                            +1
                             </button>
                             <div class="text-center mt-4 mb-4">
                                 <span id="transpose-value-${song.id}">${song.transposeValue}</span>
                             </div>
                             <button class="btn btn-outline-secondary m-0 p-3 col-12" onclick="transposeDown('${song.id}')">
-                            -
+                            -1
+                            </button>
+                            <button class="btn btn-outline-secondary m-0 p-3 col-12" onclick="transposeDown2('${song.id}')">
+                            -2
                             </button>
                         </div>
                     </div>
@@ -580,18 +586,19 @@ async function initializeFirebase() {
             }
         }
 
-        // Funzione per visualizzare le canzoni della raccolta selezionata
-        function visualizzaCanzoni(songsArray) {
-            $('#songs-list').empty(); // Pulisci la lista delle canzoni precedenti
-            songsArray.forEach((song) => {
-                $('#songs-list').append(`<li>${song.titolo}</li>`); // Aggiungi le canzoni alla lista
-            });
-        }
-
-
-        // });
-
-        // Funzione per gestire l'aumento di semitoni
+        // Funzione per gestire l'aumento di toni
+        window.transposeUp2 = function (songId) {
+            const currentSearchQuery = $('#search-bar').val().toLowerCase(); // Memorizza il valore di ricerca corrente
+            transposeValues[songId] += 2; // Incrementa il valore di trasposizione per il brano specifico
+            $('#transpose-value-' + songId).text(transposeValues[songId]); // Aggiorna la label visualizzata
+            transpose(songId, 2); // Trasponi di 1 semitono per il brano specifico
+            updateSongInFirestore(songId, currentSearchQuery); // Passa il valore di ricerca corrente
+            //Ripristina titolo
+            const title = $(`#${songId}`).attr('titolo');
+            const number = $(`#${songId}`).attr('numero');
+            $(`#song-content-${songId}`).prepend(`<h5 id="title-${songId}" class="mb-4">${number}. ${title}</h5>`);
+        };
+        // Funzione per gestire l'incremento di semitoni
         window.transposeUp = function (songId) {
             const currentSearchQuery = $('#search-bar').val().toLowerCase(); // Memorizza il valore di ricerca corrente
             transposeValues[songId]++; // Incrementa il valore di trasposizione per il brano specifico
@@ -604,12 +611,24 @@ async function initializeFirebase() {
             $(`#song-content-${songId}`).prepend(`<h5 id="title-${songId}" class="mb-4">${number}. ${title}</h5>`);
         };
 
-        // Funzione per gestire la diminuzione di semitoni
+        // Funzione per gestire l'aumento di semitoni
         window.transposeDown = function (songId) {
             const currentSearchQuery = $('#search-bar').val().toLowerCase(); // Memorizza il valore di ricerca corrente
             transposeValues[songId]--; // Decrementa il valore di trasposizione per il brano specifico
             $('#transpose-value-' + songId).text(transposeValues[songId]); // Aggiorna la label visualizzata
             transpose(songId, -1); // Trasponi di -1 semitono per il brano specifico
+            updateSongInFirestore(songId, currentSearchQuery); // Passa il valore di ricerca corrente
+            //Ripristina titolo
+            const title = $(`#${songId}`).attr('titolo');
+            const number = $(`#${songId}`).attr('numero');
+            $(`#song-content-${songId}`).prepend(`<h5 id="title-${songId}" class="mb-4">${number}. ${title}</h5>`);
+        };
+        // Funzione per gestire la diminuzione di toni
+        window.transposeDown2 = function (songId) {
+            const currentSearchQuery = $('#search-bar').val().toLowerCase(); // Memorizza il valore di ricerca corrente
+            transposeValues[songId] -= 2; // Decrementa il valore di trasposizione per il brano specifico
+            $('#transpose-value-' + songId).text(transposeValues[songId]); // Aggiorna la label visualizzata
+            transpose(songId, -2); // Trasponi di -2 semitoni per il brano specifico
             updateSongInFirestore(songId, currentSearchQuery); // Passa il valore di ricerca corrente
             //Ripristina titolo
             const title = $(`#${songId}`).attr('titolo');
@@ -627,104 +646,6 @@ async function initializeFirebase() {
             // Colora di rosso tutti gli accordi nel testo
             songContentDiv.find('span.chord').css('color', 'red');
         }
-
-        // Funzione per rinominare la raccolta selezionata
-        async function updateCollectionName(oldName, newName) {
-            try {
-                const clienteRef = doc(db, "Clienti", idCliente);
-                const docSnap = await getDoc(clienteRef);
-
-                if (docSnap.exists()) {
-                    const clienteData = docSnap.data();
-                    const raccolte = clienteData.raccolte || {};
-
-                    if (raccolte[oldName]) {
-                        // Aggiorna il nome della raccolta
-                        raccolte[newName] = raccolte[oldName];
-                        delete raccolte[oldName];
-
-                        try {
-                            // Salva i dati aggiornati nel database
-                            await updateDoc(clienteRef, { raccolte });
-
-                            await updateDoc(clienteRef, {
-                                "settings.raccoltaSelezionata": newName
-                            });
-
-                            // Mostra il messaggio di successo
-                            Swal.fire({
-                                title: 'Raccolta rinominata e selezionata con successo!',
-                                icon: 'success'
-                            });
-                        } catch (error) {
-                            console.error("Errore durante l'aggiornamento della raccolta selezionata:", error);
-                            Swal.fire({
-                                title: 'Errore!',
-                                text: 'Si è verificato un errore durante l\'aggiornamento della raccolta selezionata.',
-                                icon: 'error'
-                            });
-                        }
-
-                        return true;
-                    } else {
-                        throw new Error("Raccolta non trovata");
-                    }
-                } else {
-                    throw new Error("Cliente non trovato");
-                }
-            } catch (error) {
-                Swal.fire({
-                    title: 'Errore!',
-                    text: 'Errore durante la rinomina della raccolta: ' + error.message,
-                    icon: 'error'
-                });
-                return false;
-            }
-        }
-
-        // Funzione per eliminare la raccolta selezionata
-        async function deleteCollection(nomeRaccolta) {
-            try {
-                const clienteRef = doc(db, "Clienti", idCliente);
-                const clienteSnap = await getDoc(clienteRef);
-
-                if (clienteSnap.exists()) {
-                    const clienteData = clienteSnap.data();
-                    const raccolte = clienteData.raccolte || {};
-
-                    if (raccolte[nomeRaccolta]) {
-                        // Elimina la raccolta dal documento del cliente
-                        await updateDoc(clienteRef, {
-                            [`raccolte.${nomeRaccolta}`]: deleteField()
-                        });
-
-                        // Seleziona la prima raccolta disponibile dopo l'eliminazione
-                        const raccolteRimanenti = Object.keys(raccolte).filter(raccolta => raccolta !== nomeRaccolta);
-
-                        if (raccolteRimanenti.length > 0) {
-                            // Imposta la prima raccolta come raccolta selezionata
-                            await updateDoc(clienteRef, {
-                                "settings.raccoltaSelezionata": raccolteRimanenti[0]
-                            });
-                        } else {
-                            // Se non ci sono più raccolte, imposta null o un valore di default
-                            await updateDoc(clienteRef, {
-                                "settings.raccoltaSelezionata": null // oppure puoi usare un'altra raccolta di default
-                            });
-                        }
-                    } else {
-                        throw new Error("Raccolta non trovata");
-                    }
-                } else {
-                    throw new Error("Cliente non trovato");
-                }
-            } catch (error) {
-                console.error('Errore durante l\'eliminazione della raccolta:', error);
-                Swal.fire('Errore!', 'Non è stato possibile eliminare la raccolta.', 'error');
-            }
-        }
-
-
 
         // Funzione per aggiornare il documento su Firestore
         async function updateSongInFirestore(songId, currentSearchQuery) {
@@ -1064,7 +985,7 @@ async function initializeFirebase() {
                     const docSnap = await getDocs(raccoltaRef);
 
                     if (!docSnap.empty) {
-                        // Elimina la canzone specifica dalla raccolta
+                        // Elimina la canzone o la raccolta
                         await deleteDoc(doc(raccoltaRef, songId));
 
                         // Verifica se la raccolta è vuota
@@ -1072,11 +993,19 @@ async function initializeFirebase() {
 
                         if (updatedDocSnap.empty) {
                             // Se la raccolta è vuota, elimina la raccolta o aggiorna il documento cliente come desiderato
-                            await deleteCollection(doc(db, "Clienti", idCliente, raccoltaSelezionata));
-                            await deleteField(doc(db, "Clienti", idCliente, "raccolte", raccoltaSelezionata));
+                            let snapCliente = await getDoc(doc(db, "Clienti", idCliente));
+                            let raccolteData = snapCliente.data();
 
-                            // Seleziona prima raccolta disponibile presente nel field 
-                            await updateField(doc(clienteRef, ))
+
+                            let raccolteList = raccolteData.raccolte;
+                            raccolteList = raccolteList.filter(item => item !== raccoltaSelezionata);
+
+                            
+                            await updateDoc(clienteRef, {
+                                "raccolte" : raccolteList,
+                                "settings.raccoltaSelezionata" : raccolteList[0]
+                            });
+
 
                             Swal.fire({ icon: 'info', title: 'Raccolta vuota', text: 'La raccolta è stata eliminata poiché vuota.' });
                         }
@@ -1085,10 +1014,7 @@ async function initializeFirebase() {
                     }
 
                     // Torna alla vista normale
-                    const searchBar = $("#searchBarRaccolta");
-                    const editSection = $(`#editSection-${songId}`);
-                    searchBar.show();
-                    editSection.show();
+                    window.cancelEdit();
                 } else {
                     Swal.fire({ icon: 'error', title: 'Errore', text: 'Brano non trovato.' });
                 }
@@ -1104,56 +1030,6 @@ async function initializeFirebase() {
             }
         }
 
-
-
-
-
-        async function svuotaNotifiche() {
-            try {
-                const docSnap = await getDoc(clienteRef);
-
-                if (docSnap.exists()) {
-                    const clienteData = docSnap.data();
-
-                    if (clienteData.notifiche) {
-                        await updateDoc(clienteRef, {
-                            "notifiche.messaggio": '',
-                            "notifiche.colore": ''
-                        });
-                    }
-                } else {
-                    Swal.fire({ icon: 'error', title: 'Oops...', text: "Ramo notifiche non trovato sul cliente." });
-                }
-            } catch (error) {
-                console.error("Errore durante lo svuotamento delle notifiche: ", error);
-            }
-        }
-
-
-        // Gestione delle notifiche
-        function notificaPastore(notifica, colore) {
-            // Mappa dei colori predefiniti per le notifiche
-            const coloriNotifica = {
-                blu: "linear-gradient(to right, #2193b0, #6dd5ed)",
-                verde: "linear-gradient(to right, #00b09b, #96c93d)",
-                giallo: "linear-gradient(to right, #f7971e, #ffd200)",
-                rosso: "linear-gradient(to right, #e53935, #e35d5b)",
-                azzurro: "linear-gradient(to right, #00c6ff, #0072ff)"
-            };
-
-            // Usa il colore specificato o default a verde se il colore non è riconosciuto
-            const backgroundColor = coloriNotifica[colore] || coloriNotifica.verde;
-
-            // Mostra la notifica con il colore specificato
-            // Toastify({
-            //     text: notifica,
-            //     duration: 5000,
-            //     gravity: "bottom",
-            //     position: "center",
-            //     backgroundColor: backgroundColor,
-            //     stopOnFocus: true,
-            // }).showToast();
-        }
 
         // Apri indice raccolta
         $('#open-index').click(async function () {

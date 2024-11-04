@@ -138,6 +138,12 @@ $(document).ready(async function () {
         await initializeTagify();
     }
 
+    // Gestisce l'aumento di toni
+    $('#transpose-up2').click(function () {
+        transposeValue += 2;
+        $('#transpose-value').text(transposeValue);
+        transpose(2);
+    });
     // Gestisce l'aumento di semitoni
     $('#transpose-up').click(function () {
         transposeValue++;
@@ -151,21 +157,39 @@ $(document).ready(async function () {
         $('#transpose-value').text(transposeValue);
         transpose(-1);
     });
+    // Gestisce la diminuzione di toni
+    $('#transpose-down2').click(function () {
+        transposeValue -= 2;
+        $('#transpose-value').text(transposeValue);
+        transpose(-2);
+    });
 
     $('#save-song').click(function () {
         let raccolta = $('#song-collection').val();
-
-        //Estrai categorie
         let categoriesMap = $('#song-categories').val();
-        let parsedCategories = JSON.parse(categoriesMap);
-        let categories = parsedCategories.map(item => Object.values(item)[0]);
-
         let number = $('#numero').val();
         let title = $('#titolo').val();
         let songHTML = tinymce.get('song-editor').getContent();
-
+    
+        // Verifica che tutti i campi obbligatori siano compilati
+        if (!raccolta || !categoriesMap || !number || !title || !songHTML) {
+            Swal.fire({
+                title: 'Errore!',
+                text: 'Per favore, compila tutti i campi obbligatori prima di salvare.',
+                icon: 'error',
+                confirmButtonText: 'OK'
+            });
+            return;
+        }
+    
+        // Estrai e analizza le categorie
+        let parsedCategories = JSON.parse(categoriesMap);
+        let categories = parsedCategories.map(item => Object.values(item)[0]);
+    
+        // Chiama la funzione di salvataggio solo se tutti i campi sono validi
         saveSong(raccolta, categories, number, title, songHTML);
     });
+    
 
     function transpose(semitone) {
         let htmlContent = tinymce.get('song-editor').getContent();
