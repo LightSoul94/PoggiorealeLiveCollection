@@ -491,6 +491,8 @@ async function initializeFirebase() {
             const querySnapshot = await getDocs(raccoltaRef);
             const songsArray = querySnapshot.docs.map(doc => ({
                 id: doc.id,
+                tempo: doc.data().tempo,
+                bpm: doc.data().bpm,
                 numero: doc.data().numero,
                 titolo: doc.data().titolo,
                 categorie: doc.data().categorie,
@@ -511,9 +513,15 @@ async function initializeFirebase() {
                 transposeValues[song.id] = song.transposeValue;
 
                 songListHTML += `
-            <li class='list-group-item mb-2 p-0' id="${song.id}" categorie="${song.categorie}" titolo="${song.titolo}" numero="${song.numero}" dataInserimento="${song.dataInserimento}" ultimaModifica="${song.ultimaModifica}" raccolta="${nomeRaccolta}">
+            <li class='list-group-item mb-2 p-0' id="${song.id}" categorie="${song.categorie}" tempo="${song.tempo}" bpm="${song.bpm}" titolo="${song.titolo}" numero="${song.numero}" dataInserimento="${song.dataInserimento}" ultimaModifica="${song.ultimaModifica}" raccolta="${nomeRaccolta}">
+            
+                <div class="d-flex align-items-center mb-3 p-2 border rounded bg-light" id="song-tempo-${song.id}" style="color: red;">
+                    <span class="me-4 fs-4 fw-bold color-red">
+                        <strong>Tempo: ${song.tempo ?? '-'} | BPM: ${song.bpm ?? '-'}</strong>
+                    </span>
+                </div>
+            
                 <div class="d-flex flex-row">
-                    
                     <div class="col p-1" id="song-content-${song.id}">
                         <h5 id="title-${song.id}" class="mb-4">
                             ${song.numero}. ${song.titolo}
@@ -769,6 +777,7 @@ async function initializeFirebase() {
             // Splitta il titolo in numero e testo
             const [numero, titolo] = interoTitolo.split('. ', 2); // Usa il separatore ". "
 
+            $(`#song-tempo-${songId}`).remove();
             objTitoloCanzone.remove();
             $('.admin').hide();
             $('#exportSongs').hide();
@@ -799,6 +808,22 @@ async function initializeFirebase() {
                         </div>
                         <label for="song-category">Categorie:</label>
                         <input type="text" id="song-category" class="form-control" placeholder="Inserisci le categorie separandole con la virgola o con tab">
+                    </div>
+                    <div class="d-flex">
+                        <div class="form-group mr-2">
+                            <label for="tempo">Tempo:</label>
+                            <select id="tempo" class="form-control">
+                                <option value="" selected disabled>Seleziona il tempo</option>
+                                <option value="2/4">2/4</option>
+                                <option value="3/4">3/4</option>
+                                <option value="4/4">4/4</option>
+                                <option value="6/8">6/8</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="bpm">BPM:</label>
+                            <input id="bpm" class="form-control" type="number" min="40" max="300" placeholder="Inserisci BPM">
+                        </div>
                     </div>
                     <div class="d-flex col-12 mb-2 pr-2 pl-0">
                         <input id="numero-${songId}" class="form-control col-md-2 mr-2" type="number" min="1" placeholder="N." value="${numero}" style="font-size:12px">
@@ -885,6 +910,8 @@ async function initializeFirebase() {
             $('.tagify__tag-text').each(function () {
                 categorie.push($(this).text());
             });
+            let tempo = $(`#${songId}`).attr('tempo');
+            let bpm = $(`#${songId}`).attr('bpm');
             let number = $(`#numero-${songId}`).val();
             let title = $(`#titolo-${songId}`).val();
             let songHTML = tinymce.get(`edit-textarea-${songId}`).getContent();
