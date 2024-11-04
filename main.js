@@ -1,11 +1,10 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-app.js";
-import { getAuth, signInWithEmailAndPassword, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-auth.js";
-import { getFirestore, collection, onSnapshot, doc, updateDoc, getDoc, setDoc, deleteDoc, getDocs, Timestamp } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore.js";
+import { getFirestore, onSnapshot, collection, doc, updateDoc, getDocs, getDoc, setDoc, deleteField, deleteDoc, Timestamp } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore.js";
 import { containsChord, transposeChord } from './transposeUtils.js';
 
-let isAdmin = 0;
+
+const idCliente = "POGGIOREALE"
 let db;
-let auth;
 
 async function initializeFirebase() {
     try {
@@ -20,38 +19,26 @@ async function initializeFirebase() {
 
         // Ottieni le impostazioni dal configuratore
         const firebaseConfig = configurator['firebaseDB'];
-        const authConfig = configurator['firebaseAuth'];
 
-        if (!firebaseConfig || !authConfig) {
+        if (!firebaseConfig) {
             throw new Error("Errore: Firebase non è stato inizializzato correttamente. Verifica la tua configurazione.");
         }
+
 
         // Inizializza l'app Firebase
         const app = initializeApp(firebaseConfig);
 
         // Ottieni i servizi di autenticazione e Firestore
-        auth = getAuth(app);
         db = getFirestore(app);
-
-        console.log("Firebase è stato inizializzato correttamente.");
-
-        // Effettua il login
-        const { email, password } = authConfig;
-        await signInWithEmailAndPassword(auth, email, password);
-        console.log("Login effettuato con successo.");
 
         // Carica i dati in tempo reale dopo il successo del login
         loadAllSongsInRealtime();
 
         // MAIN
         // Riferimento alla barra di ricerca della raccolta
-        const isWordSearch = doc(db, "settings", "wordSearchEnabled");
-        // Riferimento al filtro di ricerca
-        const searchRef = doc(db, "settings", "current_search");
-        // Riferimento alla barra di ricerca dell'innario
-        const pdfSearchRef = doc(db, "settings", "pdf_search");
-        // Riferimento all'interruttore su Firestore
-        const switchRef = doc(db, "settings", "switch_status");
+        // Caricamento cliente
+        const clienteRef = doc(db, "Clienti", idCliente);
+        const dataCliente = await getDoc(clienteRef);
 
 
         // Funzione per esportare in PDF la lista completa o solo i risultati della ricerca
@@ -84,7 +71,7 @@ async function initializeFirebase() {
             // Trova solo le canzoni visibili nella lista
             let songsArray = [];
             $element.find('.list-group-item:visible').each(function () {
-                const categoria = $(this).attr('categoria') || "Generico";
+                const categorie = $(this).attr('categorie') || "Generica";
                 const titolo = $(this).attr('titolo') || "Senza Titolo";
                 const numero = $(this).attr('numero') || "0";
 
@@ -102,14 +89,14 @@ async function initializeFirebase() {
                     htmlContent = htmlContent.replace(/<\/?span[^>]*>/gi, '');
 
                     // Sostituzione degli <strong> per grassetto con formattazione asterisco
-                    htmlContent = htmlContent.replace(/<strong>(.*?)<\/strong>/gi, (match, content) => {
+                    htmlContent = htmlContent.replace(/<strong>(.*?)<\/strong>/gi, (_match, content) => {
                         return `*${content.trim()}*`; // Simula il grassetto con asterischi
                     });
 
                     return htmlContent.trim();
                 }).get().join('\n');
 
-                songsArray.push({ categoria, titolo, numero, contenuto });
+                songsArray.push({ categorie, titolo, numero, contenuto });
             });
 
             let y = 20; // Coordinata per il contenuto
@@ -180,15 +167,15 @@ async function initializeFirebase() {
             // Creare l'indice basato sul contenuto delle canzoni
             let indice = {};
             songsArray.forEach(song => {
-                if (!indice[song.categoria]) {
-                    indice[song.categoria] = [];
+                if (!indice[song.categorie]) {
+                    indice[song.categorie] = [];
                 }
-                indice[song.categoria].push(`${song.numero}. ${song.titolo}`);
+                indice[song.categorie].push(`${song.numero}. ${song.titolo}`);
             });
 
             // Aggiungi l'indice alla pagina inserita
-            Object.keys(indice).forEach(categoria => {
-                pdf.text(categoria, 10, y);
+            Object.keys(indice).forEach(categorie => {
+                pdf.text(categorie, 10, y);
                 y += 6;
 
                 // Se la coordinata y supera un certo limite, aggiungi una nuova pagina per continuare l'indice
@@ -197,7 +184,7 @@ async function initializeFirebase() {
                     y = 20; // Reimposta la coordinata y all'inizio della nuova pagina
                 }
 
-                indice[categoria].forEach(titolo => {
+                indice[categorie].forEach(titolo => {
                     pdf.text(`- ${titolo}`, 20, y);
                     y += 6;
 
@@ -215,30 +202,10 @@ async function initializeFirebase() {
             Swal.close(); // Chiude la finestra di caricamento
         }
 
-        // Imposta il file PDF
-        const url = 'inni.pdf'; // Cambia con il percorso del tuo file PDF
-        let pdfDoc = null,
-            pageNum = 1,
-            pageRendering = false,
-            pageNumPending = null,
-            scale = 1.5,
-            canvas = document.getElementById('pdf-render'),
-            ctx = canvas.getContext('2d');
-
         // Nascondi funzioni admin se non è autorizzato
-        $(document).ready(function () {
-            // const searchRef = doc(db, "settings", "current_search");
-
+        $(document).ready(async function () {
             // Recupera l'ultima query di ricerca da Firestore all'apertura della pagina
-            initializeSearchDocument();
-            const adminCookie = getCookie("isAdmin");
-            if (adminCookie === "1") {
-                isAdmin = 1;
-                sbloccaAdmin();
-            } else {
-                // Nascondi inizialmente gli elementi di amministrazione
-                $('.admin').hide();
-            }
+            await initializeSearchDocument();
         });
 
         //Pulisci motore di ricerca e aggiorna Firestore
@@ -246,12 +213,30 @@ async function initializeFirebase() {
             $('#wordSearch').prop('checked', false);
             document.getElementById('search-bar').value = '';
             filterSongs('');
-            // Aggiorna Firestore con la nuova query di ricerca
+
             try {
-                await updateDoc(searchRef, {
-                    query: '',
-                    wordSearchEnabled: false
-                });
+                const isWordSearch = $('#wordSearch').prop('checked');
+
+                // Recupera il documento del cliente
+                const clienteRef = doc(db, "Clienti", idCliente);
+                const docSnap = await getDoc(clienteRef);
+
+                // Aggiorna Firestore con la nuova query di ricerca
+                if (docSnap.exists()) {
+                    // Estrai i dati del documento
+                    const clienteData = docSnap.data();
+
+                    // Verifica se esiste il campo settings
+                    if (clienteData.settings) {
+                        // Svuota filtri di ricerca
+                        await updateDoc(clienteRef, {
+                            "settings.query": '',
+                            "settings.flgWordSearch": isWordSearch
+                        });
+                    } else {
+                        Swal.fire({ icon: 'error', title: 'Oops...', text: "Il campo settings non esiste nel documento cliente" });
+                    }
+                }
             } catch (error) {
                 console.error('Errore durante l\'aggiornamento della ricerca su Firestore:', error);
             }
@@ -260,21 +245,37 @@ async function initializeFirebase() {
 
         //Inizializza motore di ricerca
         $(document).ready(function () {
-            // Ascolta gli eventi di input nella barra di ricerca
-            $('#search-bar').on('input', async function () {
-                const searchQuery = $(this).val().toLowerCase();
-                const isWordSearch = $('#wordSearch').prop('checked');
+            try {
+                // Ascolta gli eventi di input nella barra di ricerca
+                $('#search-bar').on('input', async function () {
+                    const searchQuery = $(this).val().toLowerCase();
+                    const isWordSearch = $('#wordSearch').prop('checked');
 
-                // Aggiorna Firestore con la nuova query di ricerca
-                try {
-                    await updateDoc(searchRef, {
-                        query: searchQuery,
-                        wordSearchEnabled: isWordSearch
-                    });
-                } catch (error) {
-                    console.error('Errore durante l\'aggiornamento della ricerca su Firestore:', error);
-                }
-            });
+                    // Recupera il documento del cliente
+                    const clienteRef = doc(db, "Clienti", idCliente);
+                    const docSnap = await getDoc(clienteRef);
+
+                    // Aggiorna Firestore con la nuova query di ricerca
+                    if (docSnap.exists()) {
+                        // Estrai i dati del documento
+                        const clienteData = docSnap.data();
+
+                        // Verifica se esiste il campo settings
+                        if (clienteData.settings) {
+                            // Aggiorna solo il campo query all'interno della mappa settings
+                            await updateDoc(clienteRef, {
+                                "settings.query": searchQuery
+                            });
+                        } else {
+                            Swal.fire({ icon: 'error', title: 'Oops...', text: "Il campo settings non esiste nel documento cliente" });
+                        }
+                    }
+                });
+            }
+            catch (error) {
+                console.error('Errore durante il salvataggio dell\'ultima ricerca effettuata:', error);
+            }
+
 
             // Event listener per la checkbox di ricerca per parole contenute
             $('#wordSearch').on('click', async function () {
@@ -286,9 +287,27 @@ async function initializeFirebase() {
 
                 // Aggiorna Firestore con il nuovo stato dell'opzione di ricerca
                 try {
-                    await updateDoc(searchRef, {
-                        wordSearchEnabled: isWordSearchStatus
-                    });
+                    const isWordSearch = $('#wordSearch').prop('checked');
+
+                    // Recupera il documento del cliente
+                    const clienteRef = doc(db, "Clienti", idCliente);
+                    const docSnap = await getDoc(clienteRef);
+
+                    // Aggiorna Firestore con la nuova query di ricerca
+                    if (docSnap.exists()) {
+                        // Estrai i dati del documento
+                        const clienteData = docSnap.data();
+
+                        // Verifica se esiste il campo settings
+                        if (clienteData.settings) {
+                            // Aggiorna solo il flag di ricerca per parole all'interno della mappa settings
+                            await updateDoc(clienteRef, {
+                                "settings.flgWordSearch": isWordSearch
+                            });
+                        } else {
+                            Swal.fire({ icon: 'error', title: 'Oops...', text: "Il campo settings non esiste nel documento cliente" });
+                        }
+                    }
                 } catch (error) {
                     console.error('Errore durante l\'aggiornamento delle opzioni di ricerca su Firestore:', error);
                 }
@@ -298,271 +317,29 @@ async function initializeFirebase() {
             });
         });
 
-        // Specifica il percorso del worker script di PDF.js
-        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.10.377/pdf.worker.min.js';
-
-
-        // Carica il PDF usando PDF.js
-        pdfjsLib.getDocument(url).promise.then((pdfDoc_) => {
-            pdfDoc = pdfDoc_;
-            document.getElementById('page-count').textContent = pdfDoc.numPages;
-
-            // Renderizza la prima pagina dopo che il PDF è stato caricato
-            renderPage(pageNum);
-        }).catch((error) => {
-            console.error("Errore durante il caricamento del PDF:", error);
-        });
-
-
-        // Gestione navigatore del PDF
-        // Aggiungi event listener per i pulsanti di navigazione del PDF
-        document.getElementById('prev-page').addEventListener('click', async () => {
-            if (pageNum <= 1) return;
-            pageNum--;
-            await updatePDFPageOnFirestore(pageNum);
-            renderPage(pageNum);
-        });
-
-        document.getElementById('next-page').addEventListener('click', async () => {
-            if (pageNum >= pdfDoc.numPages) return;
-            pageNum++;
-            await updatePDFPageOnFirestore(pageNum);
-            renderPage(pageNum);
-        });
-
-
-        async function updatePDFPageOnFirestore(pageNumber) {
-            const pdfPageRef = doc(db, "settings", "pdf_page_status"); // Riferimento al documento su Firestore
-
-            try {
-                const docSnap = await getDoc(pdfPageRef);
-
-                if (docSnap.exists()) {
-                    // Aggiorna il documento se esiste
-                    await updateDoc(pdfPageRef, { currentPage: pageNumber });
-                    console.log("Stato della pagina PDF aggiornato su Firestore:", pageNumber);
-                } else {
-                    // Crea il documento se non esiste
-                    await setDoc(pdfPageRef, { currentPage: pageNumber });
-                    console.log("Documento 'pdf_page_status' creato su Firestore con pagina iniziale:", pageNumber);
-                }
-            } catch (error) {
-                console.error("Errore durante l'aggiornamento dello stato della pagina PDF su Firestore:", error);
-            }
-        }
-
-        async function initializePDFPageDocument() {
-            const pdfPageRef = doc(db, "settings", "pdf_page_status");
-            try {
-                const docSnap = await getDoc(pdfPageRef);
-                if (!docSnap.exists()) {
-                    // Se il documento non esiste, crea un nuovo documento con la pagina iniziale impostata su 1
-                    await setDoc(pdfPageRef, { currentPage: 1 });
-                    console.log("Documento di stato della pagina PDF inizializzato su Firestore.");
-                } else {
-                    console.log("Documento di stato della pagina PDF già esistente su Firestore.");
-                }
-            } catch (error) {
-                console.error('Errore durante l\'inizializzazione del documento di stato della pagina PDF su Firestore:', error);
-            }
-        }
-
-        // Inizializza il documento di stato della pagina PDF all'apertura della pagina
-        initializePDFPageDocument();
-
-
-        onSnapshot(doc(db, "settings", "pdf_page_status"), (doc) => {
-            if (doc.exists()) {
-                const pageNumber = doc.data().currentPage;
-                if (pageNumber !== pageNum) { // Verifica se la pagina attuale è diversa
-                    pageNum = pageNumber;
-                    renderPage(pageNum);
-                }
-            } else {
-                console.log("Il documento 'pdf_page_status' non esiste.");
-            }
-        });
-
-
-
-        // Funzione per inizializzare il documento di ricerca PDF su Firestore
-        async function initializePDFSearchDocument() {
-            try {
-                const docSnap = await getDoc(pdfSearchRef);
-                if (!docSnap.exists()) {
-                    // Se il documento non esiste, crea un nuovo documento con una query vuota
-                    await setDoc(pdfSearchRef, { query: "" });
-                    console.log("Documento di ricerca PDF inizializzato su Firestore.");
-                } else {
-                    console.log("Documento di ricerca PDF già esistente su Firestore.");
-                }
-            } catch (error) {
-                console.error('Errore durante l\'inizializzazione del documento di ricerca PDF su Firestore:', error);
-            }
-        }
-
-        // Inizializza il documento di ricerca PDF all'apertura della pagina
-        initializePDFSearchDocument();
-
-        // Ascolta i cambiamenti nella query di ricerca del PDF in tempo reale
-        onSnapshot(pdfSearchRef, (doc) => {
-            if (doc.exists()) {
-                const pdfSearchQuery = doc.data().query.toLowerCase();
-                $('#pdf-search-bar').val(pdfSearchQuery); // Imposta la barra di ricerca PDF con l'ultima query
-                searchInPDF(pdfSearchQuery); // Esegue la ricerca nel PDF e visualizza la pagina corretta
-            }
-        });
-
-        // Event Listener per la barra di ricerca PDF
-        $('#pdf-search-bar').on('input', async function () {
-            const pdfSearchQuery = $(this).val().toLowerCase();
-            try {
-                await updateDoc(pdfSearchRef, { query: pdfSearchQuery });
-            } catch (error) {
-                console.error('Errore durante l\'aggiornamento della ricerca PDF su Firestore:', error);
-            }
-        });
-
-
-        // Barra di ricerca per il pdf inni di lode
-        // Gestisce la ricerca all'interno del PDF
-        document.getElementById('pdf-search-bar').addEventListener('input', function () {
-            const searchQuery = this.value.toLowerCase();
-            searchInPDF(searchQuery);
-        });
-
-        function searchInPDF(query) {
-            if (!pdfDoc) return;
-
-            const numPages = pdfDoc.numPages;
-            let currentPage = 1;
-            let found = false;
-
-            function searchNextPage() {
-                pdfDoc.getPage(currentPage).then(function (page) {
-                    page.getTextContent().then(function (textContent) {
-                        const textItems = textContent.items;
-                        let pageText = "";
-                        for (let i = 0; i < textItems.length; i++) {
-                            pageText += textItems[i].str + " ";
-                        }
-                        if (pageText.toLowerCase().includes(query)) {
-                            found = true;
-                            pageNum = currentPage;  // Aggiorna il numero di pagina corrente
-                            renderPage(pageNum); // Mostra la pagina dove il testo è stato trovato
-                            document.getElementById('pdf-search-bar').focus();
-                            document.getElementById('page-num').textContent = pageNum;  // Aggiorna il numero di pagina visualizzato
-                        } else if (currentPage < numPages) {
-                            currentPage++;
-                            searchNextPage(); // Cerca nella pagina successiva
-                        } else if (!found) {
-                            console.warn('Nessun risultato trovato', `La parola "${query}" non è presente nel documento.`, 'info');
-                        }
-                    });
-                });
-            }
-            searchNextPage();
-        }
-
-
-        function renderPage(num) {
-            if (!pdfDoc) {
-                // console.log("Il documento PDF non è ancora caricato.");
-                return;
-            }
-
-            if (pageRendering) {
-                // Se è in corso un rendering, memorizza la pagina da renderizzare
-                pageNumPending = num;
-                return;
-            }
-
-            pageRendering = true; // Imposta lo stato di rendering a true
-
-            // Ottieni la pagina
-            pdfDoc.getPage(num).then((page) => {
-                const viewport = page.getViewport({ scale: scale });
-                canvas.height = viewport.height;
-                canvas.width = viewport.width;
-
-                // Renderizza la pagina
-                const renderContext = {
-                    canvasContext: ctx,
-                    viewport: viewport,
-                };
-                const renderTask = page.render(renderContext);
-
-                // Aggiusta quando la pagina è renderizzata
-                renderTask.promise.then(() => {
-                    pageRendering = false; // Il rendering è completato
-                    if (pageNumPending !== null) {
-                        // Se è stata richiesta una nuova pagina durante il rendering, renderizzala ora
-                        renderPage(pageNumPending);
-                        pageNumPending = null;
-                    }
-                }).catch((error) => {
-                    console.error("Errore durante il rendering della pagina:", error);
-                    pageRendering = false; // Assicurati che lo stato di rendering venga resettato in caso di errore
-                });
-            }).catch((error) => {
-                console.error("Errore durante il caricamento della pagina PDF:", error);
-                pageRendering = false; // Assicurati che lo stato di rendering venga resettato in caso di errore
-            });
-
-            // Aggiorna il numero di pagina
-            document.getElementById('page-num').textContent = num;
-        }
-
-        //Pulisci motore di ricerca e aggiorna Firestore
-        window.clearSearchPDF = async function () {
-            document.getElementById('pdf-search-bar').value = '';
-            searchInPDF('');
-            // Aggiorna Firestore con la nuova query di ricerca
-            try {
-                await updateDoc(pdfSearchRef, {
-                    query: ''
-                });
-            } catch (error) {
-                console.error('Errore durante l\'aggiornamento della ricerca su Firestore:', error);
-            }
-        }
-
-
-
-        // Cambia la pagina
-        document.getElementById('prev-page').addEventListener('click', () => {
-            if (pageNum <= 1) return;
-            pageNum--;
-            renderPage(pageNum);
-        });
-
-        document.getElementById('next-page').addEventListener('click', () => {
-            if (pageNum >= pdfDoc.numPages) return;
-            pageNum++;
-            renderPage(pageNum);
-        });
-
 
         // Funzione per inizializzare il documento di ricerca su Firestore
         async function initializeSearchDocument() {
-            const searchRef = doc(db, "settings", "current_search");
+            const clienteRef = doc(db, "Clienti", idCliente);
             try {
-                const docSnap = await getDoc(searchRef);
+                const docSnap = await getDoc(clienteRef);
                 if (!docSnap.exists()) {
                     // Se il documento non esiste, crea un nuovo documento con una query vuota
-                    await setDoc(searchRef, { query: "", wordSearch: isWordSearchStatus });
-                    console.log("Documento di ricerca inizializzato su Firestore.");
+                    await setDoc(clienteRef, { query: "", wordSearch: isWordSearchStatus });
+                    Swal.fire({ icon: 'error', title: 'Oops...', text: "Documento di ricerca inizializzato su Firestore." });
                 } else {
+                    // Ottieni i dati del documento
+                    const data = docSnap.data();
                     // Recupera e imposta l'ultima query di ricerca
-                    const searchQuery = docSnap.data().query.toLowerCase();
+                    const searchQuery = data.settings.query.toLowerCase();
                     $('#search-bar').val(searchQuery); // Imposta il valore della barra di ricerca
-        
+
                     // Recupera lo stato del flag e imposta il checkbox
-                    const isWordSearch = docSnap.data().wordSearchEnabled; 
+                    const isWordSearch = docSnap.data().wordSearchEnabled;
                     if (typeof isWordSearch !== 'undefined') {
                         $('#wordSearch').prop('checked', isWordSearch); // Imposta lo stato del checkbox
                     }
-        
+
                     // Applica automaticamente il filtro di ricerca
                     filterSongs(searchQuery);
                 }
@@ -570,123 +347,381 @@ async function initializeFirebase() {
                 console.error('Errore durante l\'inizializzazione del documento di ricerca:', error);
             }
         }
-        
+
 
 
         // Variabile per tenere traccia della trasposizione corrente
         let transposeValues = {};
 
-        function loadAllSongsInRealtime() {
+        async function loadAllSongsInRealtime() {
             const adminCookie = getCookie("isAdmin");
-            onSnapshot(collection(db, "culto"), (querySnapshot) => {
+            const clienteRef = doc(db, "Clienti", idCliente);
+
+            // Recupera i settings per determinare quale raccolta caricare
+            const clienteSnap = await getDoc(clienteRef);
+            if (!clienteSnap.exists()) {
+                Swal.fire({ icon: 'error', title: 'Oops...', text: "Il documento cliente non esiste." });
+                return;
+            } else {
+                const selectedRaccolta = clienteSnap.data().settings.raccoltaSelezionata;
+                loadCollectionSongs(selectedRaccolta);
+            }
+
+
+
+
+            // Aggiorna il contenuto in tempo reale
+            onSnapshot(clienteRef, (doc) => {
+                // Aggiorna pagina del cliente
+                const raccolte = doc.data().raccolte;
+                const lastSelectedCollection = doc.data().settings.raccoltaSelezionata;
                 let songsArray = [];
+                let newButton;
 
-                // Raccogli i dati dei cantici in un array
-                querySnapshot.forEach((doc) => {
-                    const data = doc.data();
-                    songsArray.push({
-                        id: doc.id,
-                        numero: data.numero,
-                        titolo: data.titolo,
-                        categoria: data.categoria,
-                        html: data.html,
-                        transposeValue: data.transposeValue || 0
+                if (raccolte && raccolte.length > 0) {
+                    $('#raccolte-btnGroup').empty();
+
+                    // Scorri tutte le raccolte
+                    raccolte.sort().forEach((nomeRaccolta) => {
+                        const isActive = nomeRaccolta === lastSelectedCollection;
+                        newButton = $('<button/>', {
+                            type: 'button',
+                            class: `btn btn-custom mr-0 mb-0 ${isActive ? 'active' : ''}`,
+                            text: nomeRaccolta,
+                            click: async function () {
+                                // Rimuovi la classe 'active' da tutti i pulsanti
+                                $('#raccolte-btnGroup .btn').removeClass('active');
+                                // Aggiungi la classe 'active' al pulsante cliccato
+                                $(this).addClass('active');
+
+                                // Aggiorna la raccolta selezionata nel database
+                                await aggiornaRaccoltaSelezionata(nomeRaccolta);
+
+                                // Aggiorna la visualizzazione delle canzoni alla raccolta corrente
+                                await loadCollectionSongs(nomeRaccolta);
+
+
+                            }
+                        });
+
+                        // Aggiungi il nuovo pulsante al gruppo esistente
+                        $('#raccolte-btnGroup').append(newButton);
                     });
-                });
-
-                // Ordina l'array in base al numero in ordine crescente
-                songsArray.sort((a, b) => a.numero - b.numero);
-
-
-                // Crea l'HTML per la lista dei cantici ordinati
-                let songListHTML = "<ul class='list-group'>";
-                songsArray.forEach((song) => {
-                    transposeValues[song.id] = song.transposeValue;
-
-                    songListHTML += `
-                    <li class='list-group-item mb-2 p-0' id="${song.id}" categoria="${song.categoria}" titolo="${song.titolo}" numero="${song.numero}">
-                        <div class="d-flex flex-row">
-                            
-                            <div class="col p-1" id="song-content-${song.id}">
-                                <h5 id="title-${song.id}" class="mb-4">
-                                    ${song.numero}. ${song.titolo}
-                                </h5>
-                                ${song.html}
-                            </div>
-                            <div class="col-3 p-1 admin" id="editSection-${song.id}" style="display:none">
-                                <button id="edit-button-${song.id}" class="btn btn-outline-secondary m-0 p-1 col-12 justify-content-center" style="height: 70px;" onclick="editSong('${song.id}')">
-                                    <i class="fa fa-pencil" aria-hidden="true"></i> Modifica
-                                </button>
-    
-                                <div class="mt-5" id="transposer-${song.id}">
-                                    <button class="btn btn-outline-secondary m-0 p-3 col-12" onclick="transposeUp('${song.id}')">
-                                    +
-                                    </button>
-                                    <div class="text-center mt-4 mb-4">
-                                        <span id="transpose-value-${song.id}">${song.transposeValue}</span>
-                                    </div>
-                                    <button class="btn btn-outline-secondary m-0 p-3 col-12" onclick="transposeDown('${song.id}')">
-                                    -
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    </li>`;
-                });
-                songListHTML += "</ul>";
-
-                $('#songs-list').html(songListHTML);
-
-                // Aggiorna vista in base all'ultima ricerca effettuata
-                onSnapshot(searchRef, (doc) => {
-                    if (doc.exists()) { // Controlla se il documento esiste
-                        const searchQuery = doc.data().query.toLowerCase();
-                        const isWordSearch = doc.data().wordSearchEnabled;
-                        $('#search-bar').val(searchQuery);
-                        $('#wordSearch').prop('checked', isWordSearch);
-
-                        filterSongs(searchQuery);
-                    } else {
-                        console.log("Il documento 'current_search' non esiste.");
-                    }
-                });
-                if (adminCookie === "1") {
-                    sbloccaAdmin();
+                } else {
+                    Swal.fire({ icon: 'error', title: 'Oops...', text: "Nessuna raccolta trovata." });
+                    return;
                 }
+
             }, (error) => {
-                Swal.fire('Errore!', 'Non è stato possibile caricare i cantici: ' + error.message, 'error');
+                Swal.fire('Errore!', 'Non è stato possibile caricare i brani: ' + error.message, 'error');
+            });
+
+
+            // Aggiorna le opzioni di ricerca in tempo reale
+            onSnapshot(clienteRef, (doc) => {
+                if (doc.exists()) {
+                    const searchQuery = doc.data().settings.query.toLowerCase();
+                    const isWordSearch = doc.data().settings.flgWordSearch;
+                    const selectedRaccolta = doc.data().settings.raccoltaSelezionata;
+
+                    // Imposta il valore del campo di ricerca e lo stato del checkbox
+                    $('#search-bar').val(searchQuery);
+                    $('#wordSearch').prop('checked', isWordSearch);
+                    $(`#raccolte-btnGroup button`).filter(function () {
+                        return $(this).text().trim() === selectedRaccolta;
+                    }).addClass('active', '');
+                    // Applica i filtri alle canzoni
+                    filterSongs(searchQuery, selectedRaccolta.toLowerCase());
+                } else {
+                    Swal.fire({ icon: 'error', title: 'Oops...', text: "Il documento 'current_search' non esiste." });
+                }
             });
         }
+
+        async function loadAllCollections() {
+            const clienteRef = doc(db, "Clienti", idCliente);
+            const docSnap = await getDoc(clienteRef);
+            const raccolte = [];
+
+            if (docSnap.exists()) {
+                const raccolteCliente = docSnap.data().raccolte;
+                if (raccolteCliente) {
+                    raccolteCliente.forEach(function (raccolta) {
+                        raccolte.push(raccolta);
+                    });
+
+                    let $select = $("#song-collection");
+                    $.each(raccolte, function (index, raccolta) {
+                        $select.append(new Option(raccolta, raccolta));
+                    });
+                }
+            }
+
+            $("#song-collection").on("change", function () {
+                if ($(this).val() === "new") {
+                    Swal.fire({
+                        title: 'Aggiungi nuova raccolta',
+                        input: 'text',
+                        inputLabel: 'Nome nuova raccolta',
+                        inputPlaceholder: 'Inserisci il nome della nuova raccolta',
+                        showCancelButton: true,
+                        confirmButtonText: 'Aggiungi',
+                        cancelButtonText: 'Annulla',
+                        inputValidator: function (value) {
+                            if (!value) return 'Devi inserire un nome per la raccolta!';
+                        }
+                    }).then(function (result) {
+                        if (result.isConfirmed) {
+                            let nuovaRaccolta = result.value;
+                            $('#song-collection').data('nuovaRaccolta', nuovaRaccolta);
+                            $('#song-collection').append(new Option(nuovaRaccolta, nuovaRaccolta));
+                            $('#song-collection').val(nuovaRaccolta);
+                        } else {
+                            $("#song-collection").val("");
+                        }
+                    });
+                }
+            });
+        }
+
+        // Funzione che aggiorna la visualizzazione delle canzoni
+        async function loadCollectionSongs(nomeRaccolta) {
+            // Recupera i brani dalla sottocollezione
+            const raccoltaRef = collection(db, "Clienti", idCliente, nomeRaccolta);
+            const querySnapshot = await getDocs(raccoltaRef);
+            const songsArray = querySnapshot.docs.map(doc => ({
+                id: doc.id,
+                numero: doc.data().numero,
+                titolo: doc.data().titolo,
+                categorie: doc.data().categorie,
+                html: doc.data().html,
+                transposeValue: doc.data().transVal || 0,
+                dataInserimento: doc.data().dataInserimento ? formatDate(doc.data().dataInserimento.toDate()) : '-',
+                ultimaModifica: doc.data().ultimaModifica ? formatDate(doc.data().ultimaModifica.toDate()) : '-'
+            }));
+
+            // Ordina l'array in base al numero in ordine crescente, se popolato
+            if (songsArray.length > 0) {
+                songsArray.sort((a, b) => a.numero - b.numero);
+            }
+
+            // Crea l'HTML per la lista dei brani ordinati
+            let songListHTML = "<ul class='list-group'>";
+            songsArray.forEach((song) => {
+                transposeValues[song.id] = song.transposeValue;
+
+                songListHTML += `
+            <li class='list-group-item mb-2 p-0' id="${song.id}" categorie="${song.categorie}" titolo="${song.titolo}" numero="${song.numero}" dataInserimento="${song.dataInserimento}" ultimaModifica="${song.ultimaModifica}" raccolta="${nomeRaccolta}">
+                <div class="d-flex flex-row">
+                    
+                    <div class="col p-1" id="song-content-${song.id}">
+                        <h5 id="title-${song.id}" class="mb-4">
+                            ${song.numero}. ${song.titolo}
+                        </h5>
+                        ${song.html}
+                    </div>
+                    <div class="col-3 p-1 admin" id="editSection-${song.id}" style="display:none">
+                        <button id="edit-button-${song.id}" class="btn btn-outline-secondary m-0 p-1 col-12 justify-content-center" style="height: 70px;" onclick="editSong('${song.id}')">
+                            <i class="fa fa-pencil" aria-hidden="true"></i> Modifica
+                        </button>
+    
+                        <div class="mt-5" id="transposer-${song.id}">
+                            <button class="btn btn-outline-secondary m-0 p-3 col-12" onclick="transposeUp('${song.id}')">
+                            +
+                            </button>
+                            <div class="text-center mt-4 mb-4">
+                                <span id="transpose-value-${song.id}">${song.transposeValue}</span>
+                            </div>
+                            <button class="btn btn-outline-secondary m-0 p-3 col-12" onclick="transposeDown('${song.id}')">
+                            -
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </li>`;
+            });
+            songListHTML += "</ul>";
+
+            $('#songs-list').html(songListHTML);
+
+            const adminCookie = getCookie("isAdmin");
+            if (adminCookie === "1") {
+                $('.admin').show();
+                $('#open-auth').hide();
+            } else {
+                // Nascondi inizialmente gli elementi di amministrazione
+                $('.admin').hide();
+            }
+
+
+        }
+
+        // Aggiorna Firestore con la raccolta selezionata
+        async function aggiornaRaccoltaSelezionata(nomeRaccolta) {
+            const clienteRef = doc(db, "Clienti", idCliente);
+            const docSnap = await getDoc(clienteRef);
+
+            // Aggiorna Firestore con la nuova query di ricerca
+            if (docSnap.exists()) {
+                // Estrai i dati del documento
+                const clienteData = docSnap.data();
+
+                // Verifica se esiste il campo settings
+                if (clienteData.settings) {
+                    // Svuota filtri di ricerca
+                    await updateDoc(clienteRef, {
+                        'settings.raccoltaSelezionata': nomeRaccolta
+                    }).catch((error) => {
+                        console.error('Errore nell\'aggiornamento della raccolta selezionata:', error);
+                    });
+                } else {
+                    Swal.fire({ icon: 'error', title: 'Oops...', text: "Il campo settings non esiste nel documento cliente" });
+                }
+            }
+        }
+
+        // Funzione per visualizzare le canzoni della raccolta selezionata
+        function visualizzaCanzoni(songsArray) {
+            $('#songs-list').empty(); // Pulisci la lista delle canzoni precedenti
+            songsArray.forEach((song) => {
+                $('#songs-list').append(`<li>${song.titolo}</li>`); // Aggiungi le canzoni alla lista
+            });
+        }
+
 
         // });
 
         // Funzione per gestire l'aumento di semitoni
         window.transposeUp = function (songId) {
             const currentSearchQuery = $('#search-bar').val().toLowerCase(); // Memorizza il valore di ricerca corrente
-            transposeValues[songId]++; // Incrementa il valore di trasposizione per il cantico specifico
+            transposeValues[songId]++; // Incrementa il valore di trasposizione per il brano specifico
             $('#transpose-value-' + songId).text(transposeValues[songId]); // Aggiorna la label visualizzata
-            transpose(songId, 1); // Trasponi di 1 semitono per il cantico specifico
+            transpose(songId, 1); // Trasponi di 1 semitono per il brano specifico
             updateSongInFirestore(songId, currentSearchQuery); // Passa il valore di ricerca corrente
+            //Ripristina titolo
+            const title = $(`#${songId}`).attr('titolo');
+            const number = $(`#${songId}`).attr('numero');
+            $(`#song-content-${songId}`).prepend(`<h5 id="title-${songId}" class="mb-4">${number}. ${title}</h5>`);
         };
 
         // Funzione per gestire la diminuzione di semitoni
         window.transposeDown = function (songId) {
             const currentSearchQuery = $('#search-bar').val().toLowerCase(); // Memorizza il valore di ricerca corrente
-            transposeValues[songId]--; // Decrementa il valore di trasposizione per il cantico specifico
+            transposeValues[songId]--; // Decrementa il valore di trasposizione per il brano specifico
             $('#transpose-value-' + songId).text(transposeValues[songId]); // Aggiorna la label visualizzata
-            transpose(songId, -1); // Trasponi di -1 semitono per il cantico specifico
+            transpose(songId, -1); // Trasponi di -1 semitono per il brano specifico
             updateSongInFirestore(songId, currentSearchQuery); // Passa il valore di ricerca corrente
+            //Ripristina titolo
+            const title = $(`#${songId}`).attr('titolo');
+            const number = $(`#${songId}`).attr('numero');
+            $(`#song-content-${songId}`).prepend(`<h5 id="title-${songId}" class="mb-4">${number}. ${title}</h5>`);
         };
 
-        // Funzione per trasporre solo le note del cantico con l'ID specifico
+        // Funzione per trasporre solo le note del brano con l'ID specifico
         function transpose(songId, semitone) {
             const songContentDiv = $(`#song-content-${songId}`);
-            let htmlContent = songContentDiv.html(); // Ottieni il contenuto HTML del cantico
+            let htmlContent = songContentDiv.html(); // Ottieni il contenuto HTML del brano
             let transposedContent = transposeChords(htmlContent, semitone);
-            songContentDiv.html(transposedContent); // Aggiorna il contenuto del cantico
+            songContentDiv.html(transposedContent); // Aggiorna il contenuto del brano
 
             // Colora di rosso tutti gli accordi nel testo
             songContentDiv.find('span.chord').css('color', 'red');
+        }
+
+        // Funzione per rinominare la raccolta selezionata
+        async function updateCollectionName(oldName, newName) {
+            try {
+                const clienteRef = doc(db, "Clienti", idCliente);
+                const docSnap = await getDoc(clienteRef);
+
+                if (docSnap.exists()) {
+                    const clienteData = docSnap.data();
+                    const raccolte = clienteData.raccolte || {};
+
+                    if (raccolte[oldName]) {
+                        // Aggiorna il nome della raccolta
+                        raccolte[newName] = raccolte[oldName];
+                        delete raccolte[oldName];
+
+                        try {
+                            // Salva i dati aggiornati nel database
+                            await updateDoc(clienteRef, { raccolte });
+
+                            await updateDoc(clienteRef, {
+                                "settings.raccoltaSelezionata": newName
+                            });
+
+                            // Mostra il messaggio di successo
+                            Swal.fire({
+                                title: 'Raccolta rinominata e selezionata con successo!',
+                                icon: 'success'
+                            });
+                        } catch (error) {
+                            console.error("Errore durante l'aggiornamento della raccolta selezionata:", error);
+                            Swal.fire({
+                                title: 'Errore!',
+                                text: 'Si è verificato un errore durante l\'aggiornamento della raccolta selezionata.',
+                                icon: 'error'
+                            });
+                        }
+
+                        return true;
+                    } else {
+                        throw new Error("Raccolta non trovata");
+                    }
+                } else {
+                    throw new Error("Cliente non trovato");
+                }
+            } catch (error) {
+                Swal.fire({
+                    title: 'Errore!',
+                    text: 'Errore durante la rinomina della raccolta: ' + error.message,
+                    icon: 'error'
+                });
+                return false;
+            }
+        }
+
+        // Funzione per eliminare la raccolta selezionata
+        async function deleteCollection(nomeRaccolta) {
+            try {
+                const clienteRef = doc(db, "Clienti", idCliente);
+                const clienteSnap = await getDoc(clienteRef);
+
+                if (clienteSnap.exists()) {
+                    const clienteData = clienteSnap.data();
+                    const raccolte = clienteData.raccolte || {};
+
+                    if (raccolte[nomeRaccolta]) {
+                        // Elimina la raccolta dal documento del cliente
+                        await updateDoc(clienteRef, {
+                            [`raccolte.${nomeRaccolta}`]: deleteField()
+                        });
+
+                        // Seleziona la prima raccolta disponibile dopo l'eliminazione
+                        const raccolteRimanenti = Object.keys(raccolte).filter(raccolta => raccolta !== nomeRaccolta);
+
+                        if (raccolteRimanenti.length > 0) {
+                            // Imposta la prima raccolta come raccolta selezionata
+                            await updateDoc(clienteRef, {
+                                "settings.raccoltaSelezionata": raccolteRimanenti[0]
+                            });
+                        } else {
+                            // Se non ci sono più raccolte, imposta null o un valore di default
+                            await updateDoc(clienteRef, {
+                                "settings.raccoltaSelezionata": null // oppure puoi usare un'altra raccolta di default
+                            });
+                        }
+                    } else {
+                        throw new Error("Raccolta non trovata");
+                    }
+                } else {
+                    throw new Error("Cliente non trovato");
+                }
+            } catch (error) {
+                console.error('Errore durante l\'eliminazione della raccolta:', error);
+                Swal.fire('Errore!', 'Non è stato possibile eliminare la raccolta.', 'error');
+            }
         }
 
 
@@ -694,50 +729,76 @@ async function initializeFirebase() {
         // Funzione per aggiornare il documento su Firestore
         async function updateSongInFirestore(songId, currentSearchQuery) {
             const songContentDiv = $(`#song-content-${songId}`);
-            const updatedContent = songContentDiv.html(); // Ottieni il contenuto aggiornato
-            const titoloCantico = $(`#${songId}`).attr("titolo"); // Ottieni titolo del cantico aggiornato
+            const updatedContent = songContentDiv.html();
+            // const titoloBrano = $(`#${songId}`).attr("titolo");
+            const raccoltaSelezionata = $(`#${songId}`).attr("raccolta");
+            const currentDate = new Date();
 
             try {
-                await updateDoc(doc(db, "culto", songId), {
-                    html: updatedContent,
-                    transposeValue: transposeValues[songId] // Salva il valore di trasposizione
-                });
-                console.log(`Cantico ${titoloCantico} aggiornato su Firestore.`);
+                const clienteRef = doc(db, "Clienti", idCliente);
+                const raccoltaRef = collection(clienteRef, raccoltaSelezionata);
+                const songDocRef = doc(raccoltaRef, songId);
+
+                const docSnap = await getDoc(songDocRef);
+
+                // Aggiorna Firestore con la nuova query di ricerca
+                if (docSnap.exists()) {
+                    // Estrai il valore di trasposizione
+                    const transpositionValue = $(`#transpose-value-${songId}`).text();
+
+                    // Aggiorna il documento specifico della canzone nella sottocollezione
+                    await updateDoc(songDocRef, {
+                        // titolo: titoloBrano,
+                        html: updatedContent,
+                        transVal: transpositionValue,
+                        ultimaModifica: Timestamp.fromDate(currentDate)
+                    });
+                } else {
+                    Swal.fire({ icon: 'error', title: 'Oops...', text: "Non è stato trovato questo brano" });
+                }
 
                 // Applica nuovamente il filtro di ricerca con il valore corrente
                 filterSongs(currentSearchQuery);
 
-                if (isAdmin === 1) {
-                    sbloccaAdmin();
-                }
             } catch (error) {
                 console.error('Errore durante l\'aggiornamento su Firestore:', error);
-                Swal.fire('Errore!', 'Non è stato possibile aggiornare il cantico su Firestore: ' + error.message, 'error');
+                Swal.fire('Errore!', 'Non è stato possibile aggiornare il brano su Firestore: ' + error.message, 'error');
             }
         }
 
-        // Funzione per filtrare i cantici in base alla ricerca corrente
-        function filterSongs(searchQuery) {
+        // Funzione per filtrare i brani in base alla ricerca corrente
+        function filterSongs(searchQuery, selectedRaccolta) {
             $('.list-group-item').each(function () {
                 const numero = $(this).attr('numero') ? $(this).attr('numero').toLowerCase() : '';
                 const titolo = $(this).attr('titolo') ? $(this).attr('titolo').toLowerCase() : '';
-                const categoria = $(this).attr('categoria') ? $(this).attr('categoria').toLowerCase() : '';
+                const categorie = $(this).attr('categorie') ? $(this).attr('categorie').toLowerCase() : '';
+                const raccolta = $(this).attr('raccolta') ? $(this).attr('raccolta').toLowerCase() : '';
 
                 // Include il contenuto testuale di tutta la canzone
                 const isWordSearch = $('#wordSearch').is(':checked');
                 const parole = $(this).text().toLowerCase();
 
-                // Se è abilitata la ricerca per parole e la ricerca coincide
-                if (isWordSearch && parole.includes(searchQuery)) {
-                    $(this).show();
-                } else if (`${numero}. ${titolo}`.includes(searchQuery) || titolo.includes(searchQuery) || categoria.includes(searchQuery)) {
-                    // Altrimenti effettua ricerca classica per numero/titolo/categoria
-                    $(this).show();
-                } else {
-                    $(this).hide();
+                // Mostra solo le canzoni che appartengono alla raccolta selezionata
+                if (selectedRaccolta) {
+
+                    if (selectedRaccolta !== raccolta) {
+                        $(this).hide();
+                        return; // Non proseguire se la raccolta non corrisponde
+                    }
+
+                    // Se è abilitata la ricerca per parole e la ricerca coincide
+                    if (isWordSearch && parole.includes(searchQuery.toLowerCase())) {
+                        $(this).show();
+                    } else if (`${numero}. ${titolo}`.includes(searchQuery.toLowerCase()) || titolo.includes(searchQuery.toLowerCase()) || categorie.includes(searchQuery.toLowerCase())) {
+                        // Altrimenti effettua ricerca classica per numero/titolo/categorie
+                        $(this).show();
+                    } else {
+                        $(this).hide();
+                    }
                 }
             });
         }
+
 
 
         function transposeChords(html, semitone) {
@@ -770,12 +831,15 @@ async function initializeFirebase() {
 
 
 
-        // Funzione per modificare il cantico selezionato
-        // Funzione per modificare il cantico selezionato
+        // Funzione per modificare il brano selezionato
         window.editSong = async function (songId) {
-            const objTitolo = $(`#title-${songId}`);
+            const raccoltaSelezionata = $(`#${songId}`).attr("raccolta")
+            const objTitoloCanzone = $(`#title-${songId}`);
+            const categorieAttr = $(`#${songId}`).attr("categorie") || ""; // Ottieni le categorie o usa stringa vuota se non esiste
+            const categoriePreesistenti = categorieAttr.trim().split(/\s+/); // Separa le categorie
+            const dataInserimento = $(`#${songId}`).attr("dataInserimento") ?? '-';
+            const lastEdit = $(`#${songId}`).attr("ultimamodifica") ?? '-';
             const songContentDiv = $(`#song-content-${songId}`);
-            const searchBar = $("#searchBarRaccolta");
             const editSection = $(`#editSection-${songId}`);
 
             // Ottieni il testo completo del titolo
@@ -784,148 +848,205 @@ async function initializeFirebase() {
             // Splitta il titolo in numero e testo
             const [numero, titolo] = interoTitolo.split('. ', 2); // Usa il separatore ". "
 
-            objTitolo.remove(); // Rimuovi titolo
-            searchBar.hide(); // Nascondi campo di ricerca
+            objTitoloCanzone.remove();
+            $('.admin').hide();
+            $('#exportSongs').hide();
+
             editSection.hide();
 
-            const categoria = $(`#${songId}`).attr("categoria");
 
             // Distruggi TinyMCE se già inizializzato
             if (tinymce.get(`edit-textarea-${songId}`)) {
                 tinymce.get(`edit-textarea-${songId}`).remove();
             }
 
-            // Recupera la data di ultima modifica da Firestore
-            let lastModifiedDate = "Non ancora salvato";
-            let dataInserimento = "Sconosciuta";
-            try {
-                const docRef = doc(db, "culto", songId);
-                const docSnap = await getDoc(docRef);
-                if (docSnap.exists()) {
-                    const data = docSnap.data();
-                    if (data && data.dataInserimento) {
-                        dataInserimento = new Date(data.dataInserimento.toDate()).toLocaleString('it-IT', { dateStyle: 'short', timeStyle: 'short' });
-                    }
-                    if (data && data.ultimaModifica) {
-                        lastModifiedDate = new Date(data.ultimaModifica.toDate()).toLocaleString('it-IT', { dateStyle: 'short', timeStyle: 'short' });
-                    }
-                }
-            } catch (error) {
-                console.error("Errore nel recuperare la data di ultima modifica:", error);
-            }
+
 
             // Inizializza TinyMCE sul textarea per la modifica
             songContentDiv.html(`
-        <div class="col-12 p-0">
-            <div class="form-group">
-                <div class="d-flex justify-content-end">
-                    <button class="btn btn-outline-danger d-flex " onclick="deleteSong('${songId}')">Elimina</button>
+                <div class="col-12 p-0">
+                    <div class="form-group">
+                        <div class="d-flex justify-content-end">
+                            <button class="btn btn-outline-danger d-flex " onclick="deleteSong('${songId}')">Elimina</button>
+                        </div>
+                        <div class="form-group">
+                            <label for="song-collection">Seleziona una raccolta:</label>
+                            <select id="song-collection" class="form-control">
+                                <option value="" selected disabled>Seleziona una raccolta</option>
+                                <option value="new">Crea nuova raccolta</option>
+                            </select>
+                        </div>
+                        <label for="song-category">Categorie:</label>
+                        <input type="text" id="song-category" class="form-control" placeholder="Inserisci le categorie separandole con la virgola o con tab">
+                    </div>
+                    <div class="d-flex col-12 mb-2 pr-2 pl-0">
+                        <input id="numero-${songId}" class="form-control col-md-2 mr-2" type="number" min="1" placeholder="N." value="${numero}" style="font-size:12px">
+                        <input id="titolo-${songId}" class="form-control col-10" type="text" placeholder="Titolo" value="${titolo}" style="font-size:12px">
+                    </div>
                 </div>
-                <label for="song-category">Categoria:</label>
-                <select id="song-category" class="form-control">
-                    <option value="Generico">Generico</option>
-                    <option value="Apertura">Apertura</option>
-                    <option value="Preghiera">Preghiera</option>
-                    <option value="Lode">Lode</option>
-                    <option value="Chiusura">Chiusura</option>
-                    <option value="Piccolo">Piccolo</option>
-                    <option value="Da Verificare">Da Verificare</option>
-                </select>
-            </div>
-            <div class="d-flex col-12 mb-2 pr-2 pl-0">
-                <input id="numero-${songId}" class="form-control col-md-2 mr-2" type="number" min="0" placeholder="N." value="${numero}" style="font-size:12px">
-                <input id="titolo-${songId}" class="form-control col-10" type="text" placeholder="Titolo" value="${titolo}" style="font-size:12px">
-            </div>
-        </div>
-        <textarea id="edit-textarea-${songId}" class="form-control" rows="5" style="height:500px">${songContentDiv.html()}</textarea>
-        <button class="btn btn-success mt-2" onclick="saveSong('${songId}')">Salva</button>
-        <button class="btn btn-secondary mt-2" onclick="cancelEdit('${songId}')">Annulla</button>
-        <div class="mt-2">
-            <label id="data-insert-label-${songId}" class="text-muted" style="font-size: 12px; color: lightgray; font-style: italic;">Data inserimento: ${dataInserimento} - </label>
-            <label id="last-modified-label-${songId}" class="text-muted" style="font-size: 12px; color: lightgray; font-style: italic;">Ultima modifica: ${lastModifiedDate}</label>
-        </div>
-    `);
+                <textarea id="edit-textarea-${songId}" class="form-control" rows="5" style="height:500px">${songContentDiv.html()}</textarea>
+                <button class="btn btn-success mt-2" onclick="saveSong('${songId}')">Salva</button>
+                <button class="btn btn-secondary mt-2" onclick="cancelEdit('${songId}')">Annulla</button>
+                <div class="mt-2">
+                    <label id="data-insert-label-${songId}" class="text-muted" style="font-size: 12px; color: lightgray; font-style: italic;">Data inserimento: ${dataInserimento}</label>
+                    <label id="lastEditLabel-${songId}" class="text-muted" style="font-size: 12px; color: lightgray; font-style: italic;">Ultima modifica: ${lastEdit}</label>
+                </div>
+            `);
 
-            $(`#song-category`).val(categoria);
+            // Carica tutte le raccolte
+            await loadAllCollections()
+
+            // attiva la raccolta attuale
+            $("#song-collection").val(raccoltaSelezionata);
+
+            //Inizializza Tagify
+            initializeTagify(songId);
+
+            // Evento per gestire l'inserimento delle categorie
+            document.getElementById('song-category').addEventListener('input', function () {
+                // Ottieni il valore inserito dall'utente
+                let inputVal = this.value;
+
+                // Crea un array di categorie separando il valore in base agli spazi
+                let categorie = inputVal.trim().split(/\s+/);
+
+                // Assegna il valore delle categorie a una variabile globale o invialo dove necessario
+                // esempio: aggiorna la variabile categorie
+                window.categorie = categorie;
+            });
 
             tinymce.init({
                 selector: `#edit-textarea-${songId}`,
-                force_br_newlines: true,
                 menubar: false,
-                plugins: 'lists link preview',
+                plugins: 'lists preview',
                 toolbar: 'undo redo | bold italic | forecolor | fontsize | alignleft aligncenter alignright alignjustify | bullist numlist outdent indent | link',
                 setup: function (editor) {
-                    editor.on('change', function () {
-                        editor.save();
+                    editor.on('keydown', function (e) {
+                        if (e.keyCode === 13) {
+                            e.preventDefault(); // Prevent default behavior (inserting <p> tag)
+                            editor.execCommand('InsertLineBreak'); // Insert <br> tag instead
+                        }
+                    });
+                    // Evento per intercettare l'azione di incollamento
+                    editor.on('paste', function (e) {
+                        let clipboardData = e.clipboardData || e.originalEvent.clipboardData;
+                        let pastedData = clipboardData.getData('text/html'); // Recupera il contenuto incollato come HTML
+
+                        // Se il contenuto contiene <p>, sostituisci i <p> con <br><br>
+                        if (pastedData.includes('<p>')) {
+                            e.preventDefault(); // Previeni l'incollamento predefinito
+
+                            // Sostituisci ogni apertura <p> con <br><br> e chiusura </p> con una stringa vuota
+                            let newData = pastedData.replace(/<p[^>]*>/g, '<br><br>').replace(/<\/p>/g, '');
+
+                            // Incolla il nuovo contenuto manipolato
+                            editor.insertContent(newData);
+                        }
                     });
                 }
             });
         };
 
         // Funzione per annullare la modifica
-        window.cancelEdit = async function (songId) {
-            const songContentDiv = $(`#song-content-${songId}`);
-            const searchBar = $("#searchBarRaccolta");
-            const editSection = $(`#editSection-${songId}`);
-            // const editButton = $(`#edit-button-${songId}`);
-            // const sezioneTransposer = $(`#transposer-${songId}`);
-
-            searchBar.show(); // Mostra nuovamente campo di ricerca
-            editSection.show();
-            // editButton.prop('disabled', false); // Riabilita il pulsante "Modifica"
-            // sezioneTransposer.show(); // Mostra nuovamente la sezione di trasposizione
-
-            const songDoc = doc(db, "culto", songId);
+        window.cancelEdit = async function () {
+            $('#exportSongs').show();
             try {
-                const docSnap = await getDoc(songDoc);
-                if (docSnap.exists()) {
-                    songContentDiv.html(docSnap.data().html); // Ripristina il contenuto originale
-
-                    // Reinserisci titolo
-                    const titleElement = `<h5 id="title-${songId}">${docSnap.data().numero}. ${docSnap.data().titolo}</h5>`;
-                    songContentDiv.prepend(titleElement);
-
-                } else {
-                    Swal.fire('Errore!', 'Il cantico non esiste più nel database.', 'error');
-                }
+                await loadAllSongsInRealtime();
             } catch (error) {
-                Swal.fire('Errore!', 'Errore durante il recupero del cantico: ' + error.message, 'error');
+                Swal.fire('Errore!', 'Errore durante il recupero del brano: ' + error.message, 'error');
             }
         };
 
-
-        // Funzione per salvare il cantico e aggiornare la data di ultima modifica
         window.saveSong = async function (songId) {
+            let raccoltaSelezionata = $('#song-collection').val();
+            let raccoltaPrecedente = $(`#${songId}`).attr('raccolta');
+            let categorie = [];
+            $('.tagify__tag-text').each(function () {
+                categorie.push($(this).text());
+            });
+            let number = $(`#numero-${songId}`).val();
+            let title = $(`#titolo-${songId}`).val();
+            let songHTML = tinymce.get(`edit-textarea-${songId}`).getContent();
+
+            if (!songHTML.trim() || !title.trim() || !number || categorie.length === 0 || !raccoltaSelezionata) {
+                Swal.fire({
+                    icon: 'warning',
+                    title: 'Attenzione',
+                    text: 'Tutti i campi devono essere compilati prima di salvare il brano!'
+                });
+                return;
+            }
+
             try {
-                // Crea un riferimento al documento
-                const docRef = doc(db, "culto", songId);
+                const clienteRef = doc(db, "Clienti", idCliente);
                 const currentDate = new Date();
 
-                // Aggiorna il documento con le nuove informazioni, incluso "ultimaModifica"
-                await setDoc(docRef, {
-                    numero: $(`#numero-${songId}`).val(),
-                    titolo: $(`#titolo-${songId}`).val(),
-                    categoria: $(`#song-category`).val(),
-                    html: tinymce.get(`edit-textarea-${songId}`).getContent(),
-                    ultimaModifica: Timestamp.fromDate(currentDate)
-                }, { merge: true });
+                // Riferimento alla nuova sottocollezione con il nome della raccolta selezionata
+                const nuovaRaccoltaRef = collection(clienteRef, raccoltaSelezionata);
+                const songDocRef = doc(nuovaRaccoltaRef, songId);
 
-                // Aggiorna la data di ultima modifica visualizzata nell'interfaccia
-                $(`#last-modified-label-${songId}`).text(`Ultima modifica: ${currentDate.toLocaleString('it-IT', { dateStyle: 'short', timeStyle: 'short' })}`);
+                // Riferimento alla raccolta precedente (se esiste e diversa dalla selezionata)
+                if (raccoltaPrecedente && raccoltaPrecedente !== raccoltaSelezionata) {
+                    const raccoltaPrecedenteRef = doc(clienteRef, `${raccoltaPrecedente}`, songId);
+                    await deleteDoc(raccoltaPrecedenteRef);
 
-                // Ricarica schermata attuale
-                const searchBar = $("#searchBarRaccolta");
-                const editSection = $(`#editSection-${songId}`);
-                searchBar.show();
-                editSection.show();
+                    // Verifica se la raccolta precedente è ora vuota e la rimuove
+                    const raccoltaPrecedenteColRef = collection(clienteRef, raccoltaPrecedente);
+                    const snapshot = await getDocs(raccoltaPrecedenteColRef);
+                    if (snapshot.empty) {
+                        await deleteDoc(doc(clienteRef, raccoltaPrecedente));
+                    }
+                }
+
+                // Recupera la data di inserimento della canzone esistente nella raccolta selezionata
+                const songSnap = await getDoc(songDocRef);
+                const dataInserimento = songSnap.exists() ? songSnap.data().dataInserimento : Timestamp.fromDate(currentDate);
+
+                // Aggiungi o aggiorna la canzone nella sottocollezione
+                await setDoc(songDocRef, {
+                    numero: number,
+                    titolo: title,
+                    html: songHTML,
+                    ultimaModifica: Timestamp.fromDate(currentDate),
+                    categorie: categorie,
+                    dataInserimento: dataInserimento
+                });
+
+                // Aggiorna la raccolta selezionata in settings.raccoltaSelezionata
+                await updateDoc(clienteRef, {
+                    "settings.raccoltaSelezionata": raccoltaSelezionata
+                });
+
+                // Aggiorna la data di ultima modifica nell'interfaccia
+                $(`#lastEditLabel-${songId}`).text(`Ultima modifica: ${currentDate.toLocaleString('it-IT', { dateStyle: 'short', timeStyle: 'short' })}`);
+
+                // Ricarica la schermata attuale
+                $('#exportSongs').show();
+                try {
+                    await loadAllSongsInRealtime();
+                } catch (error) {
+                    Swal.fire('Errore!', 'Errore durante il recupero del brano: ' + error.message, 'error');
+                }
+
             } catch (error) {
-                console.error("Errore durante il salvataggio del cantico:", error);
+                console.error("Errore durante il salvataggio del brano:", error);
+                Swal.fire({
+                    icon: 'error',
+                    title: 'Errore',
+                    text: 'Si è verificato un errore durante il salvataggio del brano.'
+                });
             }
         };
+
+
+
+
 
         // Funzione per eliminazione
         window.deleteSong = async function (songId) {
             try {
+                const raccoltaSelezionata = $(`#${songId}`).attr("raccolta"); // Ottieni la raccolta selezionata dall'attributo
+
                 // Chiedi conferma all'utente prima di procedere
                 const result = await Swal.fire({
                     title: 'Sei sicuro?',
@@ -939,127 +1060,70 @@ async function initializeFirebase() {
                 });
 
                 if (result.isConfirmed) {
-                    // Accedi alla raccolta
-                    const docRef = doc(db, "culto", songId);
-                    // Elimina il documento
-                    await deleteDoc(docRef);
-                    // Mostra un messaggio di successo
-                    Swal.fire(
-                        'Eliminato!',
-                        'Il cantico è stato eliminato con successo.',
-                        'success'
-                    );
-                    // Torna a vista normale
+                    const raccoltaRef = collection(db, "Clienti", idCliente, raccoltaSelezionata);
+                    const docSnap = await getDocs(raccoltaRef);
+
+                    if (!docSnap.empty) {
+                        // Elimina la canzone specifica dalla raccolta
+                        await deleteDoc(doc(raccoltaRef, songId));
+
+                        // Verifica se la raccolta è vuota
+                        const updatedDocSnap = await getDocs(raccoltaRef);
+
+                        if (updatedDocSnap.empty) {
+                            // Se la raccolta è vuota, elimina la raccolta o aggiorna il documento cliente come desiderato
+                            await deleteCollection(doc(db, "Clienti", idCliente, raccoltaSelezionata));
+                            await deleteField(doc(db, "Clienti", idCliente, "raccolte", raccoltaSelezionata));
+
+                            // Seleziona prima raccolta disponibile presente nel field 
+                            await updateField(doc(clienteRef, ))
+
+                            Swal.fire({ icon: 'info', title: 'Raccolta vuota', text: 'La raccolta è stata eliminata poiché vuota.' });
+                        }
+                    } else {
+                        Swal.fire({ icon: 'error', title: 'Errore', text: 'Raccolta non trovata.' });
+                    }
+
+                    // Torna alla vista normale
                     const searchBar = $("#searchBarRaccolta");
                     const editSection = $(`#editSection-${songId}`);
                     searchBar.show();
                     editSection.show();
+                } else {
+                    Swal.fire({ icon: 'error', title: 'Errore', text: 'Brano non trovato.' });
                 }
-            } catch (error) {
-                console.error("Errore durante l'eliminazione del cantico:", error);
+
+            }
+            catch (error) {
+                console.error("Errore durante l'eliminazione del brano:", error);
                 Swal.fire(
                     'Errore',
-                    'Si è verificato un errore durante l\'eliminazione del cantico.',
+                    'Si è verificato un errore durante l\'eliminazione del brano.',
                     'error'
                 );
             }
         }
 
 
-        // Switch raccolta
-        document.getElementById('raccolta-btn').addEventListener('click', function (event) {
-            event.stopPropagation(); // Previene la propagazione dell'evento
-            handleSwitchClick(true);
-            $('#raccolta').show();
-            $('#inni').hide();
-            this.classList.add('active');
-            document.getElementById('inni-btn').classList.remove('active');
-        });
-
-        document.getElementById('inni-btn').addEventListener('click', function (event) {
-            event.stopPropagation();  // Previene la propagazione dell'evento
-            handleSwitchClick(false);
-            $('#raccolta').hide();
-            $('#inni').show();
-            this.classList.add('active');
-            document.getElementById('raccolta-btn').classList.remove('active');
-        });
 
 
-        // Funzione per gestire il click sul "segmented button"
-        async function handleSwitchClick(isRaccoltaActive) {
-            const switchRef = doc(db, "settings", "switch_status"); // Riferimento al documento Firestore
-
-            try {
-                // Controlla se il documento 'switch_status' esiste
-                const docSnap = await getDoc(switchRef);
-                if (docSnap.exists()) {
-                    // Se esiste, aggiorna lo stato
-                    await updateSwitchStatus(isRaccoltaActive);
-                } else {
-                    // Se non esiste, crea il documento con lo stato iniziale
-                    await setDoc(switchRef, { status: isRaccoltaActive });
-                    console.log("Documento 'switch_status' creato su Firestore con stato:", isRaccoltaActive);
-                }
-            } catch (error) {
-                console.error("Errore durante la gestione del click sull'interruttore:", error);
-            }
-        }
-
-        // Funzione per aggiornare lo stato dell'interruttore su Firestore
-        async function updateSwitchStatus(isRaccoltaActive) {
-            const switchRef = doc(db, "settings", "switch_status"); // Riferimento al documento Firestore
-
-            try {
-                await updateDoc(switchRef, { status: isRaccoltaActive });
-                console.log("Stato dell'interruttore aggiornato:", isRaccoltaActive);
-            } catch (error) {
-                console.error("Errore durante l'aggiornamento dello stato dell'interruttore:", error);
-            }
-        }
-
-        // Ascolta i cambiamenti allo stato dell'interruttore su Firestore
-        onSnapshot(doc(db, "settings", "switch_status"), (doc) => {
-            if (doc.exists()) {
-                const switchStatus = doc.data().status;
-                if (switchStatus) {
-                    document.getElementById('raccolta-btn').classList.add('active');
-                    document.getElementById('inni-btn').classList.remove('active');
-                    document.getElementById('raccolta').style.display = 'block';
-                    document.getElementById('inni').style.display = 'none';
-                } else {
-                    document.getElementById('inni-btn').classList.add('active');
-                    document.getElementById('raccolta-btn').classList.remove('active');
-                    document.getElementById('raccolta').style.display = 'none';
-                    document.getElementById('inni').style.display = 'block';
-                }
-            } else {
-                console.log("Il documento 'switch_status' non esiste.");
-            }
-        });
-
-        // Ascolta i cambiamenti allo stato delle notifiche su Firestore
-        onSnapshot(doc(db, "notifiche", "notificaCorrente"), (doc) => {
-            if (doc.exists()) {
-                const notifica = doc.data().messaggio;
-                const colore = doc.data().colore;
-                if (notifica != "") {
-                    notificaPastore(notifica, colore);
-                    //Svuota notifiche
-                    svuotaNotifiche();
-                }
-            } else {
-                console.log("Nessuna notifica in arrivo.");
-            }
-        });
 
         async function svuotaNotifiche() {
             try {
-                await updateDoc(doc(db, "notifiche", "notificaCorrente"), {
-                    messaggio: "",
-                    colore: ""
-                });
-                console.log("Notifiche svuotate con successo.");
+                const docSnap = await getDoc(clienteRef);
+
+                if (docSnap.exists()) {
+                    const clienteData = docSnap.data();
+
+                    if (clienteData.notifiche) {
+                        await updateDoc(clienteRef, {
+                            "notifiche.messaggio": '',
+                            "notifiche.colore": ''
+                        });
+                    }
+                } else {
+                    Swal.fire({ icon: 'error', title: 'Oops...', text: "Ramo notifiche non trovato sul cliente." });
+                }
             } catch (error) {
                 console.error("Errore durante lo svuotamento delle notifiche: ", error);
             }
@@ -1081,69 +1145,100 @@ async function initializeFirebase() {
             const backgroundColor = coloriNotifica[colore] || coloriNotifica.verde;
 
             // Mostra la notifica con il colore specificato
-            Toastify({
-                text: notifica,
-                duration: 5000,
-                gravity: "bottom",
-                position: "center",
-                backgroundColor: backgroundColor,
-                stopOnFocus: true,
-            }).showToast();
+            // Toastify({
+            //     text: notifica,
+            //     duration: 5000,
+            //     gravity: "bottom",
+            //     position: "center",
+            //     backgroundColor: backgroundColor,
+            //     stopOnFocus: true,
+            // }).showToast();
         }
 
         // Apri indice raccolta
         $('#open-index').click(async function () {
             try {
-                // Recupera tutti i cantici da Firestore
-                const querySnapshot = await getDocs(collection(db, "culto"));
+                const clienteRef = doc(db, "Clienti", idCliente);
+                const clienteSnap = await getDoc(clienteRef);
+
+                if (!clienteSnap.exists()) {
+                    Swal.fire({ icon: 'error', title: 'Oops...', text: "Il documento cliente non esiste." });
+                    return;
+                }
+
+                const clienteData = clienteSnap.data();
+                const raccolte = clienteData.raccolte;
+                const raccoltaSelezionata = clienteData.settings?.raccoltaSelezionata;
                 let indice = {};
 
-                // Organizza i cantici per categoria e ordina alfabeticamente
-                querySnapshot.forEach((doc) => {
-                    const data = doc.data();
-                    const categoria = data.categoria || "Generico";
-                    const titolo = data.titolo || "Senza Titolo";
-                    const numero = `${data.numero ? data.numero + '. ' : ''}`;
+                // Verifica che raccolte e raccoltaSelezionata esistano e siano definiti
+                if (raccolte && raccoltaSelezionata) {
+                    // Recupera i documenti della raccolta selezionata
+                    const raccoltaRef = collection(db, "Clienti", idCliente, raccoltaSelezionata);
+                    const querySnapshot = await getDocs(raccoltaRef);
 
-                    // Se la categoria non esiste nell'indice, la crea
-                    if (!indice[categoria]) {
-                        indice[categoria] = [];
+                    if (!querySnapshot.empty) {
+                        querySnapshot.forEach((doc) => {
+                            const canzone = doc.data();
+                            const categorieCanzone = canzone.categorie || ["Generica"];
+                            const titolo = canzone.titolo || "Senza Titolo";
+                            const numero = canzone.numero ? `${canzone.numero}. ` : '';
+
+                            categorieCanzone.forEach((categoria) => {
+                                // Se la categoria non esiste nell'indice, la crea
+                                if (!indice[categoria]) {
+                                    indice[categoria] = [];
+                                }
+
+                                // Aggiunge un oggetto con titolo e numero per ogni categoria
+                                indice[categoria].push({ titolo, numero });
+                            });
+                        });
+                    } else {
+                        Swal.fire({ icon: 'error', title: 'Oops...', text: "La raccolta selezionata non contiene brani." });
                     }
-
-                    // Aggiunge un oggetto con titolo e numero
-                    indice[categoria].push({ titolo, numero });
-                });
+                } else {
+                    Swal.fire({ icon: 'error', title: 'Oops...', text: "Nessuna raccolta trovata o raccolta selezionata non definita." });
+                    return;
+                }
 
                 // Ordina i titoli all'interno di ogni categoria
                 Object.keys(indice).forEach(categoria => {
                     indice[categoria].sort((a, b) => a.titolo.localeCompare(b.titolo));
                 });
 
-                // Funzione per creare l'HTML dell'indice
+                // Funzione per creare l'HTML dell'indice con la funzionalità di collassamento/espansione
                 const creaIndiceHTML = (indice) => {
                     let html = `<div class="text-left">`;
                     Object.keys(indice).forEach(categoria => {
-                        html += `<strong>${categoria}</strong><ul>`;
+                        html += `
+                            <div class="categoria-item">
+                                <button class="btn btn-link toggle-categoria" data-categoria="${categoria}" style="text-decoration:none;">
+                                    <strong>${categoria}</strong>
+                                </button>
+                                <ul id="categoria-list-${categoria}" style="display:none;">`;
+
                         indice[categoria].forEach(canzone => {
                             html += `<li><a href="#" class="indice-titolo" data-titolo="${canzone.titolo}" data-numero="${canzone.numero}">${canzone.numero}${canzone.titolo}</a></li>`;
                         });
-                        html += "</ul>";
+
+                        html += `</ul></div>`;
                     });
-                    html += "</div>";
+                    html += `</div>`;
                     return html;
                 };
 
                 // Crea l'HTML iniziale dell'indice
                 let indiceHTML = `
-            <div class="btn-group mb-3" role="group" aria-label="Segmented button per ordinare">
-                <button type="button" class="btn btn-outline-primary m-0 active" id="btn-per-categoria">Per Categoria</button>
-                <button type="button" class="btn btn-outline-primary m-0" id="btn-ordine-numerico">Ordine Numerico</button>
-                <button type="button" class="btn btn-outline-primary m-0" id="btn-ordine-alfabetico">Ordine Alfabetico</button>
-            </div>
-            <div id="indice-contenuto">
-                ${creaIndiceHTML(indice)}
-            </div>
-        `;
+                    <div class="btn-group mb-3" role="group" aria-label="Segmented button per ordinare">
+                        <button type="button" class="btn btn-outline-primary m-0 active" id="btn-per-categorie">Per categorie</button>
+                        <button type="button" class="btn btn-outline-primary m-0" id="btn-ordine-numerico">Ordine Numerico</button>
+                        <button type="button" class="btn btn-outline-primary m-0" id="btn-ordine-alfabetico">Ordine Alfabetico</button>
+                    </div>
+                    <div id="indice-contenuto">
+                        ${creaIndiceHTML(indice)}
+                    </div>
+                `;
 
                 // Mostra l'indice con Swal
                 Swal.fire({
@@ -1154,6 +1249,15 @@ async function initializeFirebase() {
                     showCloseButton: true
                 });
 
+                // Rimuovi gli eventi click precedenti per evitare sovrapposizioni
+                $(document).off('click', '.toggle-categoria');
+
+                // Aggiungi gestore di eventi per espandere/collassare le categorie
+                $(document).on('click', '.toggle-categoria', function () {
+                    const categoria = $(this).data('categoria');
+                    $(`#categoria-list-${categoria}`).slideToggle();  // Collassa/espandi la categoria
+                });
+
                 // Aggiungi gestore di eventi per i titoli cliccabili
                 $(document).off('click', '.indice-titolo').on('click', '.indice-titolo', function (e) {
                     e.preventDefault();
@@ -1162,26 +1266,23 @@ async function initializeFirebase() {
                     Swal.close();
                 });
 
-                // Gestore eventi per intercettare il cambio di tipologia
+                // Gestore eventi per ordinamento
                 $(document).off('click', '.btn-group .btn').on('click', '.btn-group .btn', function () {
-                    // Rimuove la classe 'active' solo da questo menu
-                    $('#btn-per-categoria').removeClass('active');
+                    $('#btn-per-categorie').removeClass('active');
                     $('#btn-ordine-numerico').removeClass('active');
                     $('#btn-ordine-alfabetico').removeClass('active');
                     $(this).addClass('active');
 
                     const selectedButtonId = $(this).attr('id');
 
-                    if (selectedButtonId === 'btn-per-categoria') {
-                        // Ordina per categoria alfabeticamente
-                        Object.keys(indice).forEach(categoria => {
-                            indice[categoria].sort((a, b) => a.titolo.localeCompare(b.titolo));
-                        });
+                    if (selectedButtonId === 'btn-per-categorie') {
+                        $('#sort-toggle').remove();
+                        $('#btn-ordinamento-numerico').remove();
+                        $('#btn-ordinamento-alfabetico').remove();
                         $('#indice-contenuto').html(creaIndiceHTML(indice));
-                        $('#sort-toggle').remove(); // Rimuove il pulsante di ordinamento numerico, se presente
-                        $('#sort-alpha-toggle').remove(); // Rimuove il pulsante di ordinamento alfabetico, se presente
+                        $('#sort-alpha-toggle').remove();
                     } else if (selectedButtonId === 'btn-ordine-numerico') {
-                        $('#sort-alpha-toggle').remove(); // Rimuove il pulsante di ordinamento alfabetico, se presente
+                        $('#sort-alpha-toggle').remove();
 
                         // Ordina numericamente
                         const indiceNumerico = [];
@@ -1223,7 +1324,7 @@ async function initializeFirebase() {
                         });
 
                     } else if (selectedButtonId === 'btn-ordine-alfabetico') {
-                        $('#sort-toggle').remove(); // Rimuove il pulsante di ordinamento numerico, se presente
+                        $('#sort-toggle').remove();
                         $('#sort-alpha-toggle').remove();
 
                         // Ordina dalla A-Z
@@ -1283,19 +1384,43 @@ async function initializeFirebase() {
                         });
                     }
                 });
+
             } catch (error) {
-                console.error('Errore durante il recupero dei cantici da Firestore:', error);
+                console.error('Errore durante il recupero dei brani da Firestore:', error);
                 Swal.fire('Errore!', 'Non è stato possibile caricare l\'indice: ' + error.message, 'error');
             }
         });
-
 
     } catch (error) {
         console.error("Errore:", error);
     }
 }
 
-// Inizializza Firebase
+async function initializeTagify(songId) {
+    // Inizializza Tagify
+    const input = document.querySelector('#song-category');
+    const tagify = new Tagify(input);
+
+    // Ottieni le categorie già presenti dal DOM
+    const categoriePreesistenti = $(`#${songId}`).attr("categorie") || "";
+    const categorieArray = categoriePreesistenti.split(/\s+/);
+
+    // Prepopola Tagify con le categorie preesistenti
+    tagify.addTags(categorieArray);
+
+    // Quando l'utente modifica le categorie
+    tagify.on('add', onTagChange);
+    tagify.on('remove', onTagChange);
+
+    function onTagChange(e) {
+        // Recupera l'array delle categorie aggiornate
+        let categorie = tagify.value.map(tag => tag.value);
+        window.categorie = categorie; // Aggiorna la variabile globale o fai ciò che serve
+    }
+
+}
+
+// Inizializza componenti
 initializeFirebase();
 
 
@@ -1328,8 +1453,9 @@ $('#open-auth').click(function () {
 function verificaPassword(password) {
     const passwordCorretta = "1234"; // Cambia questa con la tua logica di autenticazione o fetch da Firestore
     if (password === passwordCorretta) {
-        isAdmin = 1;
         sbloccaAdmin();
+        // Aggiungi eventuali altre funzioni di amministrazione
+        console.log("Funzionalità amministrative sbloccate.");
     } else {
         Swal.fire('Oops!', 'Password sbagliata!', 'error');
     }
@@ -1346,9 +1472,6 @@ function sbloccaAdmin() {
     // Nascondi tasto di sblocco
     $('#open-auth').hide();
     $('#auth').hide();
-
-    // Aggiungi eventuali altre funzioni di amministrazione
-    console.log("Funzionalità amministrative sbloccate.");
 }
 
 // Funzioni per la gestione dei cookie
@@ -1378,6 +1501,14 @@ $(window).on('keydown', function (event) {
     }
 });
 
-function deleteCookie(nome) {
-    document.cookie = nome + "=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
+// Funzione per cancellare il cookie idCliente
+function deleteCookie(name) {
+    document.cookie = name + "=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
+}
+
+// Funzione per formattare la data
+function formatDate(date) {
+    if (!date) return '-'; // Se la data è null o undefined, restituisci un trattino
+    const options = { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' };
+    return date.toLocaleDateString('it-IT', options); // Formattazione italiana
 }
