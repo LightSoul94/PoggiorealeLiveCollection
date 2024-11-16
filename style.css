@@ -95,3 +95,16 @@ iframe {
     overflow-y: auto;
     padding: 0;
 }
+
+body {
+    font-family: Arial, sans-serif;
+  }
+  
+  .form-check-label {
+    font-size: 1.2rem;
+  }
+  
+  .custom-switch {
+    /* Ingrandisce lo switch */
+    transform: scale(1.5);
+}
