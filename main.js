@@ -939,7 +939,7 @@ async function initializeFirebase() {
             });
             let tempo = $(`#song-tempo-${songId}`).val();
             let bpm = parseInt($(`#bpm-${songId}`).val(), 10);
-            let transVal = parseInt($(`#edit-textarea-${songId}`).attr(`transVal-${songId}`));
+            let transVal = parseInt($(`#edit-textarea-${songId}`).attr('transVal'));
             let number = parseInt($(`#numero-${songId}`).val(), 10);
             let title = $(`#titolo-${songId}`).val();
             let songHTML = tinymce.get(`edit-textarea-${songId}`).getContent();
