@@ -10,14 +10,14 @@ export const diesisToBemolle = {
 };
 
 export function containsChord(text) {
-    const chordRegex = /^(DO|RE|MI|FA|SOL|LA|SI)([#b]?)(m?|dim?)(\d*)(\/(DO|RE|MI|FA|SOL|LA|SI)([#b]?)(m?|dim?)?)?$/;
+    const chordRegex = /^(DO|RE|MI|FA|SOL|LA|SI)([#b]?)(m?|°?|maj7?)(\d*)(\/(DO|RE|MI|FA|SOL|LA|SI)([#b]?)(m?|°?|maj7?)?)?$/;
     return chordRegex.test(text);
 }
 
 export function transposeChord(chord, semitone) {
     let parts = chord.split('/');
     parts = parts.map(part => {
-        let match = part.match(/^([A-Z]+)([#b]?)(m?|dim?)(\d*)$/);
+        let match = part.match(/^([A-Z]+)([#b]?)(m?|°?|maj7?)(\d*)$/);
         if (!match) return part;
 
         let baseChord = match[1].toUpperCase();
@@ -40,7 +40,7 @@ export function transposeChord(chord, semitone) {
                 transposedChord = diesisToBemolle[transposedChord];
             }
 
-            return transposedChord + (chordType === 'dim' ? 'dim' : (chordType === 'm' ? 'm' : '')) + extension;
+            return transposedChord + (chordType === '°' ? '°' : (chordType === 'm' ? 'm' : (chordType.includes('maj7') ? 'maj7' : ''))) + extension;
         }
         return part;
     });
