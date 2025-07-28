@@ -34,6 +34,11 @@
     <!-- Main script -->
     <script src="main.js" type="module"></script>
 
+    <!-- File manifest -->
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#dc3545">
+    <link rel="apple-touch-icon" href="resources/icons/icon-192.png">
+
 </head>
 
 <body>
@@ -67,7 +72,8 @@
                     <span id="syncText">Live Sync Attiva</span>
                     <i id="syncIcon" class="bi bi-cloud ms-2"></i>
                 </label>
-                <input type="checkbox" class="form-check-input custom-switch" id="syncSwitch" checked onclick="toggleSync()">
+                <input type="checkbox" class="form-check-input custom-switch" id="syncSwitch" checked
+                    onclick="toggleSync()">
             </div>
         </div>
 

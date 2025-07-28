@@ -1,6 +1,6 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-app.js";
 import { getFirestore, onSnapshot, collection, doc, updateDoc, getDocs, getDoc, setDoc, deleteField, deleteDoc, Timestamp } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore.js";
-import { containsChord, transposeChord } from './transposeUtils.js';
+import { containsChord, transposeChord } from '/js/transposeUtils.js';
 
 
 const idCliente = "POGGIOREALE"
@@ -90,7 +90,7 @@ async function initializeFirebase() {
                 const numero = $(this).attr('numero') || "0";
 
                 // Ottieni il contenuto della canzone e processa gli span
-                const contenuto = $(this).find('div.col p').map(function () {
+                const contenuto = $(this).find(`#song-content-${$(this).attr("id")} p`).map(function () {
                     let htmlContent = $(this).html();
 
                     // Sostituzione dei tag <br> con \n
@@ -221,6 +221,96 @@ async function initializeFirebase() {
             // Recupera l'ultima query di ricerca da Firestore all'apertura della pagina
             await initializeSearchDocument();
         });
+
+
+        // Intercetta evento per cancellazione raccolta
+        $(document).ready(function () {
+            let clickCounter = 0;
+            let lastClickedText = "";
+
+            $('#raccolte-btnGroup').on('click contextmenu', '.btn', async function (e) {
+                e.preventDefault(); // Blocca anche il menu del tasto destro
+
+                const $btn = $(this);
+                const currentText = $btn.text().trim();
+
+                // Verifica che il pulsante cliccato sia attivo
+                if (!$btn.hasClass('active')) {
+                    console.log(`Click su "${currentText}" → NON attivo → ignoro e resetto`);
+                    clickCounter = 0;
+                    lastClickedText = "";
+                    return;
+                }
+
+                // Se è lo stesso testo dell'ultimo click
+                if (currentText === lastClickedText) {
+                    clickCounter++;
+                    console.log(`Click ripetuto su "${currentText}": ${clickCounter} / 2`);
+
+                    if (clickCounter >= 2) {
+                        clickCounter = 0;
+                        lastClickedText = "";
+
+                        try {
+                            await confermaEliminazioneRaccolta(currentText);
+                        } catch (err) {
+                            console.error("Errore nella conferma:", err);
+                        }
+                    }
+                } else {
+                    // Primo click su un nuovo testo attivo
+                    console.log(`Nuovo click su "${currentText}" → resetto contatore`);
+                    clickCounter = 1;
+                    lastClickedText = currentText;
+                }
+            });
+
+            // Richiesta conferma eliminazione raccolta selezionata
+            async function confermaEliminazioneRaccolta(nomeRaccolta) {
+                const result = await Swal.fire({
+                    title: `Vuoi davvero eliminare la raccolta "${nomeRaccolta}"?`,
+                    text: "Tutti i brani in questa raccolta saranno cancellati.",
+                    icon: 'warning',
+                    showCancelButton: true,
+                    confirmButtonText: 'Sì, elimina',
+                    cancelButtonText: 'Annulla'
+                });
+
+                if (!result.isConfirmed) return;
+
+                try {
+                    const clienteRef = doc(db, "Clienti", idCliente);
+                    const raccoltaRef = collection(db, "Clienti", idCliente, nomeRaccolta);
+                    const snapshot = await getDocs(raccoltaRef);
+
+                    // Elimina ogni documento nella sottocollezione
+                    const deletePromises = snapshot.docs.map((doc) => deleteDoc(doc.ref));
+                    await Promise.all(deletePromises);
+
+                    // Rimuovi la raccolta dal documento cliente
+                    const clienteSnap = await getDoc(clienteRef);
+                    if (clienteSnap.exists()) {
+                        let raccolteList = clienteSnap.data().raccolte || [];
+                        raccolteList = raccolteList.filter(r => r !== nomeRaccolta);
+
+                        // Se la raccolta eliminata era quella selezionata, scegli la prima disponibile
+                        let nuovaSelezione = raccolteList.length > 0 ? raccolteList[0] : "-";
+
+                        await updateDoc(clienteRef, {
+                            raccolte: raccolteList,
+                            "settings.raccoltaSelezionata": nuovaSelezione
+                        });
+                    }
+
+                    Swal.fire("Eliminata!", `La raccolta "${nomeRaccolta}" è stata eliminata.`, "success");
+
+                } catch (err) {
+                    console.error("Errore nella cancellazione della raccolta:", err);
+                    Swal.fire("Errore", "Si è verificato un errore durante la cancellazione della raccolta.", "error");
+                }
+            }
+        });
+
 
         //Pulisci motore di ricerca e aggiorna Firestore
         window.clearSearchBar = async function () {
@@ -368,7 +458,6 @@ async function initializeFirebase() {
         }
 
 
-
         // Variabile per tenere traccia della trasposizione corrente
         let transposeValues = {};
 
@@ -389,11 +478,11 @@ async function initializeFirebase() {
 
             // Aggiorna il contenuto in tempo reale
             onSnapshot(clienteRef, (doc) => {
-                // Aggiorna pagina del cliente
                 const raccolte = doc.data().raccolte;
                 const lastSelectedCollection = doc.data().settings.raccoltaSelezionata;
                 let newButton;
 
+                // Aggiorna pagina del cliente
                 if (raccolte && raccolte.length > 0) {
                     $('#raccolte-btnGroup').empty();
 
@@ -449,8 +538,11 @@ async function initializeFirebase() {
                     Swal.fire({ icon: 'error', title: 'Oops...', text: "Il documento 'current_search' non esiste." });
                 }
             });
-
         }
+
+
+
+
 
         async function loadAllCollections() {
             const clienteRef = doc(db, "Clienti", idCliente);
@@ -808,22 +900,22 @@ async function initializeFirebase() {
             const dataInserimento = songElement.attr("dataInserimento") ?? '-';
             const lastEdit = songElement.attr("ultimamodifica") ?? '-';
             const transpositionValue = $(`#transpose-value-${songId}`).text();
-        
+
             // Splitta il titolo in numero e testo
             const [numero, titolo] = interoTitolo.split('. ', 2);
-        
+
             // Adatta larghezza
             $(`#song-content-${songId}`).removeClass('col-9').addClass('col-12');
-        
+
             // Nascondi sezioni non necessarie
             $('#exportSongs').hide();
             $('.admin').hide();
-        
+
             // Rimuovi TinyMCE se già inizializzato
             if (tinymce.get(`edit-textarea-${songId}`)) {
                 tinymce.get(`edit-textarea-${songId}`).remove();
             }
-        
+
             // Sostituisci contenuto con il form
             const songContentDiv = $(`#song-content-${songId}`);
             songContentDiv.html(`
@@ -879,17 +971,17 @@ async function initializeFirebase() {
                     </div>
                 </div>
             `);
-        
+
             // Carica tutte le raccolte e inizializza
             await loadAllCollections();
             $("#song-collection").val(raccoltaSelezionata);
 
             // Aggiunge l'attributo 'selected' all'opzione con valore '3/4'
             $(`#song-tempo-${songId} option[value="${tempo}"]`).attr('selected', 'selected');
-        
+
             // Inizializza Tagify per le categorie
             initializeTagify(songId);
-        
+
             // Inizializza TinyMCE
             tinymce.init({
                 selector: `#edit-textarea-${songId}`,
@@ -918,7 +1010,7 @@ async function initializeFirebase() {
             $(`#div-title-${songId}`).remove();
             $(`#song-tempo-${songId}`).remove();
         };
-        
+
 
         // Funzione per annullare la modifica
         window.cancelEdit = async function () {
@@ -1356,6 +1448,15 @@ async function initializeTagify(songId) {
 
 // Inizializza componenti
 initializeFirebase();
+
+// Registra il Service Worker per abilitare la PWA
+if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+        navigator.serviceWorker.register('js/service-worker.js')
+            .then(reg => console.log('✅ Service Worker registrato correttamente:', reg))
+            .catch(err => console.error('❌ Errore nella registrazione del Service Worker:', err));
+    });
+}
 
 
 // Funzione per l'autenticazione permessi admin
