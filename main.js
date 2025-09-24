@@ -603,7 +603,7 @@ async function initializeFirebase() {
                 titolo: doc.data().titolo,
                 categorie: doc.data().categorie,
                 html: doc.data().html,
-                transposeValue: doc.data().transVal || 0,
+                transposeValue: Number(doc.data().transVal) || 0,
                 dataInserimento: doc.data().dataInserimento ? formatDate(doc.data().dataInserimento.toDate()) : '-',
                 ultimaModifica: doc.data().ultimaModifica ? formatDate(doc.data().ultimaModifica.toDate()) : '-'
             }));
@@ -616,7 +616,7 @@ async function initializeFirebase() {
             // Crea l'HTML per la lista dei brani ordinati
             let songListHTML = "<ul class='list-group'>";
             songsArray.forEach((song) => {
-                transposeValues[song.id] = song.transposeValue;
+                transposeValues[song.id] = Number(song.transposeValue) || 0;
 
                 songListHTML += `
             <li class='list-group-item mb-2 p-0' id="${song.id}" categorie="${song.categorie}" tempo="${song.tempo ?? 'Seleziona il tempo'}" bpm="${song.bpm ?? ''}" titolo="${song.titolo}" numero="${song.numero}" dataInserimento="${song.dataInserimento}" ultimaModifica="${song.ultimaModifica}" raccolta="${nomeRaccolta}">
