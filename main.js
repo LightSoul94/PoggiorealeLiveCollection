@@ -808,7 +808,7 @@ async function initializeFirebase() {
                         await updateDoc(songDocRef, {
                             // titolo: titoloBrano,
                             html: updatedContent,
-                            transVal: transpositionValue,
+                            transVal: Number(transpositionValue),
                             ultimaModifica: Timestamp.fromDate(currentDate)
                         });
                     } else {
