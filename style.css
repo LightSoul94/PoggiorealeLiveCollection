@@ -108,3 +108,6 @@ body {
     /* Ingrandisce lo switch */
     transform: scale(1.5);
 }
+
+div[id^="song-content-"] { line-height: 1.1; }
+div[id^="song-content-"] p { margin: 0; padding: 0; }

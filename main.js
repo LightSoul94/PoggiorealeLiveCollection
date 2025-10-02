@@ -628,7 +628,7 @@ async function initializeFirebase() {
                 </div>
             
                 <div class="d-flex flex-row" id="div-title-${song.id}">
-                    <h5 id="title-${song.id}" class="mb-4">
+                    <h5 id="title-${song.id}" class="mb-3">
                         ${song.numero}. ${song.titolo}
                     </h5>
                 </div>
