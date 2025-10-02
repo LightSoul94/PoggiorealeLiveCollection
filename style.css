@@ -109,5 +109,19 @@ body {
     transform: scale(1.5);
 }
 
-div[id^="song-content-"] { line-height: 1.1; }
-div[id^="song-content-"] p { margin: 0; padding: 0; }
+/* Compattta SOLO i brani che contengono almeno uno span con font-size: 8pt (con o senza spazio) */
+div[id^="song-content-"]:has(:is(span[style*="font-size: 8pt"], span[style*="font-size:8pt"])) {
+    line-height: 1.1;
+  }
+  
+  /* Azzera margini dei <p> solo dentro quei brani */
+  div[id^="song-content-"]:has(:is(span[style*="font-size: 8pt"], span[style*="font-size:8pt"])) p {
+    margin: 0;
+    padding: 0;
+  }
+  
+  /* Collassa <br> consecutivi SOLO in quei brani (evita le “righe vuote” doppie) */
+  div[id^="song-content-"]:has(:is(span[style*="font-size: 8pt"], span[style*="font-size:8pt"])) br + br {
+    display: none;
+  }
+  
