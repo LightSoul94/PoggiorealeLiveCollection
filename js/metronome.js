@@ -183,15 +183,19 @@ let _editingEntry = null; // { metro, tempoBar, btn }
  */
 export function toggleMetronomeInEditing({ bpm, tempo, tempoBar, btn, songId } = {}) {
   // Se bpm o tempo sono vuoti o "0/0", leggili dal DOM
+  bpm = 0;
+  tempo = "0/0";
+  
   if (!bpm || bpm <= 0) {
-    const bpmInput = document.getElementById(`bpm-${songId}`);
-    bpm = bpmInput ? Number(bpmInput.value) || 120 : 120;
+    const bpmInput = parseInt(document.getElementById(`bpm-${songId}`).value);
+    bpm = bpmInput || 120;
   }
-
-  if (!tempo || tempo === "0/0" || tempo === 'undefined') {
+  
+  if (!tempo || tempo === "0/0" || tempo === "undefined") {
     const tempoInput = document.getElementById(`song-tempo-edit-${songId}`);
     tempo = tempoInput ? tempoInput.value || "4/4" : "4/4";
   }
+  
 
   // Calcola beatsPerMeasure partendo da "tempo"
   let beatsPerMeasure;
