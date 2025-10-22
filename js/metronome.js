@@ -168,7 +168,7 @@ export const _debug = { audioCtx, metronomes };
 
 
 // ———————————————————————————————————————————————
-// Modalità editing (metronomo senza songId)
+// Modalità editing quando si modifica il brano
 // ———————————————————————————————————————————————
 
 let _editingEntry = null; // { metro, tempoBar, btn }
@@ -271,4 +271,122 @@ export function stopEditingMetronome() {
   if (!_editingEntry) return;
   _editingEntry.metro.stop();
   if (_editingEntry.btn) _editingEntry.btn.textContent = "▶️ Metronomo";
+}
+
+
+// ————————————————————————————————————————————————————
+// Modalità ADDING (creazione nuovo brano, senza songId)
+// ————————————————————————————————————————————————————
+let _addingMetro = {
+  on: false,
+  timer: null,
+  bpm: 120,
+  beatsPerBar: 4,
+  beatIndex: 0,
+  targetEl: null, // nodo che "pulsa" (es. bottone)
+};
+
+// Parsing robusto del tempo (es. "4/4", "3/4", fallback 4)
+function parseBeatsPerBarFromTempoStr(tstr) {
+  if (!tstr || typeof tstr !== 'string') return 4;
+  const m = tstr.match(/^\s*(\d+)\s*\/\s*\d+\s*$/);
+  const num = m ? parseInt(m[1], 10) : NaN;
+  return Number.isFinite(num) && num > 0 ? num : 4;
+}
+
+// Fornisci un piccolo feedback visivo sul beat
+function pulse(el) {
+  if (!el) return;
+  el.classList.remove('metronome-pulse');
+  // reflow per riavviare l'animazione
+  void el.offsetWidth;
+  el.classList.add('metronome-pulse');
+}
+
+// Click sonoro (facoltativo, non blocca se AudioContext non esiste)
+function tickSound(accent = false) {
+  try {
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtx) return;
+    if (!tickSound.ctx) tickSound.ctx = new AudioCtx();
+    const ctx = tickSound.ctx;
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.type = 'square';
+    o.frequency.value = accent ? 1200 : 900;
+    g.gain.value = accent ? 0.04 : 0.03;
+    o.connect(g).connect(ctx.destination);
+    o.start();
+    o.stop(ctx.currentTime + 0.05);
+  } catch { /* no-op */ }
+}
+
+// Avvia il loop in base ai parametri correnti
+function _startAddingLoop() {
+  const intervalMs = 60000 / _addingMetro.bpm;
+
+  _addingMetro.timer = setInterval(() => {
+    const accent = (_addingMetro.beatIndex % _addingMetro.beatsPerBar) === 0;
+    pulse(_addingMetro.targetEl || document.getElementById('metronome-btn-adding'));
+    tickSound(accent);
+    _addingMetro.beatIndex = (_addingMetro.beatIndex + 1) % Math.max(1, _addingMetro.beatsPerBar);
+  }, Math.max(30, intervalMs));
+}
+
+// Ferma il loop
+export function stopMetronomeInAdding() {
+  if (_addingMetro.timer) clearInterval(_addingMetro.timer);
+  _addingMetro.timer = null;
+  _addingMetro.on = false;
+  _addingMetro.beatIndex = 0;
+}
+
+// Toggle principale: legge #tempo e #bpm dal DOM (senza songId)
+export function toggleMetronomeInAdding(opts = {}) {
+  // LEGGE DAL DOM: tempo e bpm
+  const tempoStr = $('#tempo').val() ?? '4/4';
+  const bpmVal = parseInt($('#bpm').val(), 10);
+  const bpm = Number.isFinite(bpmVal) && bpmVal > 0 ? bpmVal : 120;
+
+  // Opzionale: un target custom da far “pulsare”
+  _addingMetro.targetEl = opts.tempoBar || opts.btn || document.getElementById('metronome-btn-adding');
+
+  // Aggiorna stato
+  _addingMetro.bpm = bpm;
+  _addingMetro.beatsPerBar = parseBeatsPerBarFromTempoStr(tempoStr);
+
+  if (_addingMetro.on) {
+    // se era acceso: spegni
+    stopMetronomeInAdding();
+  } else {
+    // accendi
+    _addingMetro.on = true;
+    _startAddingLoop();
+  }
+}
+
+// Aggiornamento "live" se l'utente cambia i campi mentre il metronomo è acceso
+export function refreshMetronomeParamsInAdding(partial = {}) {
+  if (!_addingMetro.on) return;
+  let needRestart = false;
+
+  if (typeof partial.bpm !== 'undefined') {
+    const b = parseInt(partial.bpm, 10);
+    if (Number.isFinite(b) && b > 0 && b !== _addingMetro.bpm) {
+      _addingMetro.bpm = b;
+      needRestart = true;
+    }
+  }
+  if (typeof partial.tempo !== 'undefined') {
+    const beats = parseBeatsPerBarFromTempoStr(partial.tempo);
+    if (beats !== _addingMetro.beatsPerBar) {
+      _addingMetro.beatsPerBar = beats;
+      _addingMetro.beatIndex = 0;
+      // intervallo non cambia qui, ma resetto l’accento
+    }
+  }
+  if (needRestart) {
+    clearInterval(_addingMetro.timer);
+    _startAddingLoop();
+  }
 }

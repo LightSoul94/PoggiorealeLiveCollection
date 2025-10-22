@@ -17,6 +17,19 @@
 
     <!-- Firebase SDK -->
     <script src="js/addSong.js" type="module"></script>
+
+    <!-- Metronomo -->
+    <script type="module">
+        import {
+            toggleMetronomeInAdding,
+            refreshMetronomeParamsInAdding,
+            stopMetronomeInAdding
+        } from '/js/metronome.js';
+
+        window.toggleMetronomeInAdding = toggleMetronomeInAdding;
+        window.refreshMetronomeParamsInAdding = refreshMetronomeParamsInAdding;
+        window.stopMetronomeInAdding = stopMetronomeInAdding;
+    </script>
 </head>
 
 <body>
@@ -47,9 +60,15 @@
                     <option value="6/8">6/8</option>
                 </select>
             </div>
-            <div class="form-group">
+            <div class="form-group mr-2">
                 <label for="bpm">BPM:</label>
                 <input id="bpm" class="form-control" type="number" min="40" max="300" placeholder="Inserisci BPM">
+            </div>
+            <div class="form-group mt-4 mb-0">
+                <button class="btn btn-outline-primary ms-4 mb-0 mt-1" onclick="toggleMetronomeInAdding({ btn: this })"
+                    id="metronome-btn">
+                    ▶️ Metronomo
+                </button>
             </div>
         </div>
         <!-- Numero e titolo (facoltativi) -->
@@ -95,7 +114,7 @@
                     <option value="18px">18</option>
                     <option value="20px">20</option>
                     <option value="24px">24</option>
-                  </select>
+                </select>
             </div>
 
             <div class="d-flex align-items-center">

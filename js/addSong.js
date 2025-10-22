@@ -267,3 +267,13 @@ $(document).on('change', 'input[type="color"][data-role="font-color"]', function
   document.execCommand('foreColor', false, $(this).val());
   $('#song-editor').focus();
 });
+
+//Hook “live”: Così, se l’utente cambia tempo/BPM a metronomo acceso, si aggiorna al volo
+$('#bpm, #tempo').on('input change', function () {
+  if (window.refreshMetronomeParamsInAdding) {
+    window.refreshMetronomeParamsInAdding({
+      bpm: $('#bpm').val(),
+      tempo: $('#tempo').val()
+    });
+  }
+});
