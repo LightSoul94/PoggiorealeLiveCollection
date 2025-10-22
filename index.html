@@ -27,17 +27,20 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 
-    <!-- TinyMCE CDN con chiave API -->
-    <script src="https://cdn.tiny.cloud/1/qiioujnk3j9gh78onhkaow1crywy6hpsqbvxybga6snaco41/tinymce/6/tinymce.min.js"
-        referrerpolicy="origin"></script>
-
     <!-- Main script -->
     <script src="main.js" type="module"></script>
+    <script type="module">
+        import { toggleMetronome, refreshMetronomeParams } from '/js/metronome.js';
+        // solo se ti serve compatibilità con inline onclick:
+        window.toggleMetronome = toggleMetronome;
+        window.refreshMetronomeParams = refreshMetronomeParams;
+      </script>
+      
 
     <!-- File manifest -->
-    <link rel="manifest" href="manifest.json">
+    <!-- <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#dc3545">
-    <link rel="apple-touch-icon" href="resources/icons/icon-192.png">
+    <link rel="apple-touch-icon" href="resources/icons/icon-192.png"> -->
 
 </head>
 

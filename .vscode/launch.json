@@ -6,15 +6,10 @@
     "configurations": [
         {
             "type": "chrome",
-            "request": "launch",
-            "name": "Launch Chrome against localhost",
-            "url": "http://localhost:5500",
-            "userDataDir": "${workspaceFolder}/.vscode/chrome",
-            "webRoot": "${workspaceFolder}",
-            "runtimeArgs": [
-                "--auto-open-devtools-for-tabs",
-                "--disable-http-cache"
-            ]
-        }
-    ]
+            "request": "attach",
+            "name": "Attach to Chrome (9222)",
+            "port": 9222,
+            "webRoot": "${workspaceFolder}"
+          }          
+      ]
 }

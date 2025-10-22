@@ -2,6 +2,18 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.1/fireba
 import { getFirestore, onSnapshot, collection, doc, updateDoc, getDocs, getDoc, setDoc, deleteField, deleteDoc, Timestamp } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore.js";
 import { containsChord, transposeChord } from '/js/transposeUtils.js';
 
+// main.js (in alto, vicino agli altri import)
+import {
+    toggleMetronome,
+    toggleMetronomeInEditing,
+    refreshEditingMetronomeParams
+} from '/js/metronome.js';
+
+// subito dopo gli import:
+window.toggleMetronome = toggleMetronome;
+window.toggleMetronomeInEditing = toggleMetronomeInEditing;
+window.refreshEditingMetronomeParams = refreshEditingMetronomeParams;
+
 
 const idCliente = "POGGIOREALE"
 let db;
@@ -317,6 +329,7 @@ async function initializeFirebase() {
             const selectedRaccolta = $("#raccolte-btnGroup .btn.active").text().trim().toLowerCase();
             $('#wordSearch').prop('checked', false);
             document.getElementById('search-bar').value = '';
+            document.getElementById('search-bar').focus();
             filterSongs('', selectedRaccolta);
 
             try {
@@ -619,11 +632,16 @@ async function initializeFirebase() {
                 transposeValues[song.id] = Number(song.transposeValue) || 0;
 
                 songListHTML += `
-            <li class='list-group-item mb-2 p-0' id="${song.id}" categorie="${song.categorie}" tempo="${song.tempo ?? 'Seleziona il tempo'}" bpm="${song.bpm ?? ''}" titolo="${song.titolo}" numero="${song.numero}" dataInserimento="${song.dataInserimento}" ultimaModifica="${song.ultimaModifica}" raccolta="${nomeRaccolta}">
+            <li class='list-group-item mb-2 p-0' id="${song.id}" categorie="${song.categorie}" tempo="${song.tempo}" bpm="${song.bpm ?? ''}" titolo="${song.titolo}" numero="${song.numero}" dataInserimento="${song.dataInserimento}" ultimaModifica="${song.ultimaModifica}" raccolta="${nomeRaccolta}">
             
                 <div class="d-flex align-items-center mb-3 p-2 border rounded bg-light" id="song-tempo-${song.id}" style="color: red;">
                     <span class="me-4 fs-4 fw-bold color-red">
                         <strong>Tempo: ${song.tempo ?? '-'} | BPM: ${song.bpm ?? '-'}</strong>
+                        <button class="btn btn-outline-primary ms-4 mt-2"
+                                onclick="toggleMetronome('${song.id}')"
+                                id="metronome-btn-${song.id}">
+                                ▶️ Metronomo
+                        </button>
                     </span>
                 </div>
             
@@ -890,126 +908,356 @@ async function initializeFirebase() {
 
 
 
-        // Funzione per modificare il brano selezionato
+        // === FUNZIONE PRINCIPALE DI EDIT ===
         window.editSong = async function (songId) {
-            const songElement = $(`#${songId}`);
-            const raccoltaSelezionata = songElement.attr("raccolta");
-            const tempo = $(`#${songId}`).attr("tempo");
-            const bpm = songElement.attr("bpm") || '';
+            const $li = $(`#${songId}`);
+            if ($li.data('edit-mode')) return; // evita doppie attivazioni
+            $li.data('edit-mode', true);
+
+            // ---- dati dal <li> ----
+            const raccoltaSelezionata = $li.attr("raccolta") || "";
+            const tempo = $li.attr("tempo") || "";
+            const bpm = $li.attr("bpm") || "";
+            const dataInserimento = $li.attr("datainserimento") ?? "-";
+            const lastEdit = $li.attr("ultimamodifica") ?? "-";
+
             const interoTitolo = $(`#title-${songId}`).text().trim();
-            const dataInserimento = songElement.attr("dataInserimento") ?? '-';
-            const lastEdit = songElement.attr("ultimamodifica") ?? '-';
-            const transpositionValue = $(`#transpose-value-${songId}`).text();
+            const [numero, titolo] = interoTitolo.split(". ", 2);
 
-            // Splitta il titolo in numero e testo
-            const [numero, titolo] = interoTitolo.split('. ', 2);
+            // ---- riferimenti DOM ----
+            const $row = $li.find("> .d-flex.flex-row").first();
+            const $content = $(`#song-content-${songId}`);
+            const $admin = $row.find(".admin");
 
-            // Adatta larghezza
-            $(`#song-content-${songId}`).removeClass('col-9').addClass('col-12');
+            // ---- layout ----
+            $content.removeClass("col-9").addClass("p-1 col-8");
+            $admin.addClass("col-3");
 
-            // Nascondi sezioni non necessarie
-            $('#exportSongs').hide();
-            $('.admin').hide();
+            // backup testo
+            if (!$content.data('backup')) $content.data('backup', $content.html());
 
-            // Rimuovi TinyMCE se già inizializzato
-            if (tinymce.get(`edit-textarea-${songId}`)) {
-                tinymce.get(`edit-textarea-${songId}`).remove();
-            }
-
-            // Sostituisci contenuto con il form
-            const songContentDiv = $(`#song-content-${songId}`);
-            songContentDiv.html(`
-                <div class="col-12 p-0">
-                    <div class="form-group">
-                        <div class="d-flex justify-content-end mb-3">
-                            <button class="btn btn-outline-danger" onclick="deleteSong('${songId}')">Elimina</button>
-                        </div>
-                        <div class="form-group mb-3">
-                            <label for="song-collection">Seleziona una raccolta:</label>
-                            <select id="song-collection" class="form-control">
-                                <option value="" selected disabled>Seleziona una raccolta</option>
-                                <option value="new">Crea nuova raccolta</option>
-                            </select>
-                        </div>
-                        <div class="form-group mb-3">
-                            <label for="song-category">Categorie:</label>
-                            <input type="text" id="song-category" class="form-control" placeholder="Inserisci le categorie separandole con la virgola o con tab">
-                        </div>
-                    </div>
-                    <div class="d-flex mb-3">
-                        <div class="form-group me-3">
-                            <label for="song-tempo-${songId}">Tempo:</label>
-                            <select id="song-tempo-${songId}" class="form-control">
-                                <option value="">Seleziona il tempo</option>
-                                <option value="2/4">2/4</option>
-                                <option value="3/4">3/4</option>
-                                <option value="4/4">4/4</option>
-                                <option value="6/8">6/8</option>
-                            </select>
-                        </div>
-                        <div class="form-group">
-                            <label for="bpm-${songId}">BPM:</label>
-                            <input id="bpm-${songId}" class="form-control" type="number" min="40" max="300" placeholder="Inserisci BPM" value="${bpm}">
-                        </div>
-                    </div>
-                    <div class="d-flex mb-3">
-                        <div class="form-group me-3">
-                            <input id="numero-${songId}" class="form-control" type="number" min="1" placeholder="N." value="${numero}">
-                        </div>
-                        <div class="form-group flex-grow-1">
-                            <input id="titolo-${songId}" class="form-control" type="text" placeholder="Titolo" value="${titolo}">
-                        </div>
-                    </div>
-                    <textarea id="edit-textarea-${songId}" transVal="${transpositionValue}" class="form-control" rows="5" style="height: 500px;">${songContentDiv.html()}</textarea>
-                    <div class="d-flex justify-content-end mt-3">
-                        <button class="btn btn-success me-2" onclick="saveSong('${songId}')">Salva</button>
-                        <button class="btn btn-secondary" onclick="cancelEdit('${songId}')">Annulla</button>
-                    </div>
-                    <div class="mt-3">
-                        <small class="text-muted">Data inserimento: ${dataInserimento}</small><br>
-                        <small class="text-muted">Ultima modifica: ${lastEdit}</small>
-                    </div>
-                </div>
-            `);
-
-            // Carica tutte le raccolte e inizializza
-            await loadAllCollections();
-            $("#song-collection").val(raccoltaSelezionata);
-
-            // Aggiunge l'attributo 'selected' all'opzione con valore '3/4'
-            $(`#song-tempo-${songId} option[value="${tempo}"]`).attr('selected', 'selected');
-
-            // Inizializza Tagify per le categorie
-            initializeTagify(songId);
-
-            // Inizializza TinyMCE
-            tinymce.init({
-                selector: `#edit-textarea-${songId}`,
-                menubar: false,
-                plugins: 'lists preview',
-                toolbar: 'undo redo | bold italic | forecolor | fontsize | alignleft aligncenter alignright alignjustify | bullist numlist outdent indent | link',
-                setup: function (editor) {
-                    editor.on('keydown', function (e) {
-                        if (e.keyCode === 13) {
-                            e.preventDefault();
-                            editor.execCommand('InsertLineBreak');
-                        }
-                    });
-                    editor.on('paste', function (e) {
-                        let clipboardData = e.clipboardData || e.originalEvent.clipboardData;
-                        let pastedData = clipboardData.getData('text/html');
-                        if (pastedData.includes('<p>')) {
-                            e.preventDefault();
-                            let newData = pastedData.replace(/<p[^>]*>/g, '<br><br>').replace(/<\/p>/g, '');
-                            editor.insertContent(newData);
-                        }
-                    });
-                }
-            });
-
+            // pulizia elementi extra
             $(`#div-title-${songId}`).remove();
             $(`#song-tempo-${songId}`).remove();
+
+            // ---- HEADER (con toolbar) ----
+            const headerHtml = `
+      <div class="song-edit-header ms-2 me-2">
+        <div class="d-flex justify-content-end mt-3">
+          <button class="btn btn-outline-danger" onclick="deleteSong('${songId}')">Elimina</button>
+        </div>
+  
+        <label for="song-collection">Seleziona una raccolta:</label>
+        <select id="song-collection" class="form-control mb-3">
+          <option value="" selected disabled>Seleziona una raccolta</option>
+          <option value="new">Crea nuova raccolta</option>
+        </select>
+  
+        <div class="form-group mb-3">
+          <label for="song-category">Categorie:</label>
+          <input type="text" id="song-category" class="form-control" placeholder="virgola o TAB per separare">
+        </div>
+  
+        <div class="d-flex mb-3">
+          <div class="form-group me-3">
+            <label for="song-tempo-edit-${songId}">Tempo:</label>
+            <select id="song-tempo-edit-${songId}" class="form-control">
+              <option value="2/4">2/4</option>
+              <option value="3/4">3/4</option>
+              <option value="4/4">4/4</option>
+              <option value="6/8">6/8</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="bpm-${songId}">BPM:</label>
+            <input id="bpm-${songId}" class="form-control" type="number" min="40" max="300" value="${bpm}">
+          </div>
+            <button class="btn btn-outline-primary ms-3 mt-3"
+                onclick="toggleMetronomeInEditing({
+                    songId: '${songId}',
+                    bpm: ${bpm || 0},
+                    tempo: '${tempo || "0/0"}',
+                    tempoBar: null,
+                    btn: this
+                })"
+                id="metronome-btn-${songId}">
+                ▶️ Metronomo
+            </button>
+
+        </div>
+  
+        <div class="d-flex mb-2">
+          <div class="form-group me-3">
+            <input id="numero-${songId}" class="form-control" type="number" min="1" placeholder="N." value="${numero || ""}">
+          </div>
+          <div class="form-group flex-grow-1">
+            <input id="titolo-${songId}" class="form-control" type="text" placeholder="Titolo" value="${titolo || interoTitolo}">
+          </div>
+        </div>
+  
+        <!-- TOOLBAR -->
+        <div class="d-flex align-items-center gap-2 mt-3 mb-2 flex-wrap" id="format-toolbar-${songId}">
+          <div class="btn-group me-2" role="group">
+            <button type="button" class="btn btn-outline-secondary btn-sm" data-cmd="bold"><b>B</b></button>
+            <button type="button" class="btn btn-outline-secondary btn-sm" data-cmd="italic"><i>I</i></button>
+            <button type="button" class="btn btn-outline-secondary btn-sm" data-cmd="underline"><u>U</u></button>
+          </div>
+          <div class="d-flex align-items-center me-2">
+            <label class="me-1 mb-0 small">Dimensione</label>
+            <select class="form-select form-select-sm" id="font-size-${songId}" style="width:auto">
+              <option value="8px">8</option>
+              <option value="12px">12</option>
+              <option value="14px">14</option>
+              <option value="16px">16</option>
+              <option value="18px">18</option>
+              <option value="20px">20</option>
+              <option value="24px">24</option>
+            </select>
+          </div>
+          <div class="d-flex align-items-center">
+            <label class="me-1 mb-0 small">Color</label>
+            <input type="color" id="font-color-${songId}" class="p-1" value="#000000">
+          </div>
+        </div>
+      </div>
+    `;
+            $li.find('.song-edit-header').remove();
+            $li.prepend(headerHtml);
+
+            // ---- TEXT AREA EDITABILE ----
+            $content.attr({ contenteditable: "true", spellcheck: "false" }).addClass("editable-area");
+
+            // stile editor
+            if (!document.getElementById("edit-style")) {
+                const style = document.createElement("style");
+                style.id = "edit-style";
+                style.textContent = `
+        .editable-area[contenteditable="true"] {
+          border: 2px dashed #9aa0a6;
+          border-radius: .5rem;
+          background: #fff;
+          padding: 1rem;
+          min-height: 220px;
+          outline: none;
+        }
+        .editable-area:focus { border-color: #0d6efd; }
+      `;
+                document.head.appendChild(style);
+            }
+
+            // ---- FOOTER ----
+            const footerHtml = `
+      <div class="song-edit-footer mt-2">
+        <div class="d-flex justify-content-end mt-3 col-11">
+          <button class="btn btn-success me-2 mb-0" onclick="saveSong('${songId}')">Salva</button>
+          <button class="btn btn-secondary mb-0" onclick="cancelEdit('${songId}')">Annulla</button>
+        </div>
+        <div>
+          <small class="text-muted">Data inserimento: ${dataInserimento}</small><br>
+          <small class="text-muted">Ultima modifica: ${lastEdit}</small>
+        </div>
+      </div>
+    `;
+            $li.find('.song-edit-footer').remove();
+            $li.append(footerHtml);
+
+            // ---- inizializza ----
+            await loadAllCollections();
+            $("#song-collection").val(raccoltaSelezionata);
+            $(`#song-tempo-edit-${songId}`).val(tempo);
+            initializeTagify(songId);
+
+            // ---- UX ----
+            $content.on("keydown", e => {
+                if (e.key === "Enter") { e.preventDefault(); document.execCommand("insertLineBreak"); }
+            });
+            $content.on("paste", e => {
+                e.preventDefault();
+                const t = (e.originalEvent || e).clipboardData.getData("text/plain");
+                document.execCommand("insertText", false, t);
+            });
+
+            // =========================
+            // ===== TOOLBAR LOGIC =====
+            // =========================
+            let lastRange = null;
+
+            const saveSelection = () => {
+                const sel = window.getSelection();
+                if (!sel || sel.rangeCount === 0) return;
+                const range = sel.getRangeAt(0);
+                if ($content[0].contains(range.commonAncestorContainer)) {
+                    lastRange = range.cloneRange();
+                }
+            };
+
+            const restoreSelection = () => {
+                if (!lastRange) return false;
+                const sel = window.getSelection();
+                sel.removeAllRanges();
+                sel.addRange(lastRange);
+                return true;
+            };
+
+            function mergeAdjacentStyledSpans(node) {
+                const prev = node.previousSibling;
+                const next = node.nextSibling;
+                const sameStyle = (a, b) => a && b && a.nodeType === 1 && b.nodeType === 1 &&
+                    a.tagName === 'SPAN' && b.tagName === 'SPAN' &&
+                    a.getAttribute('style') === b.getAttribute('style');
+                if (sameStyle(prev, node)) {
+                    while (node.firstChild) prev.appendChild(node.firstChild);
+                    node.remove();
+                    return mergeAdjacentStyledSpans(prev);
+                }
+                if (sameStyle(node, next)) {
+                    while (next.firstChild) node.appendChild(next.firstChild);
+                    next.remove();
+                    return mergeAdjacentStyledSpans(node);
+                }
+            }
+
+            function applyInlineStyle(styleObj) {
+                if (!restoreSelection()) { $content.focus(); return; }
+                const sel = window.getSelection();
+                if (!sel || !sel.rangeCount) return;
+                const range = sel.getRangeAt(0);
+                if (range.collapsed) return;
+                const frag = range.extractContents();
+                const span = document.createElement('span');
+                Object.assign(span.style, styleObj);
+                span.appendChild(frag);
+                range.insertNode(span);
+                sel.removeAllRanges();
+                const newRange = document.createRange();
+                newRange.selectNodeContents(span);
+                sel.addRange(newRange);
+                saveSelection();
+                mergeAdjacentStyledSpans(span);
+            }
+
+            // --- Nuovo fix per COLORI ---
+            function applyColor(color) {
+                if (!restoreSelection()) { $content.focus(); return; }
+                const sel = window.getSelection();
+                if (!sel || !sel.rangeCount) return;
+                const range = sel.getRangeAt(0);
+                if (range.collapsed) return;
+
+                const frag = range.extractContents();
+
+                // rimuove i colori inline già presenti
+                const walker = document.createTreeWalker(frag, NodeFilter.SHOW_ELEMENT, null);
+                let node;
+                while ((node = walker.nextNode())) {
+                    if (node.style) node.style.color = '';
+                    if (node.hasAttribute && node.hasAttribute('color')) node.removeAttribute('color');
+                }
+
+                const span = document.createElement('span');
+                span.style.color = color;
+                span.appendChild(frag);
+                range.insertNode(span);
+
+                sel.removeAllRanges();
+                const newRange = document.createRange();
+                newRange.selectNodeContents(span);
+                sel.addRange(newRange);
+                saveSelection();
+                mergeAdjacentStyledSpans(span);
+            }
+
+            // --- Gestione toolbar ---
+            $content.on('mouseup keyup', saveSelection);
+
+            $(`#format-toolbar-${songId} [data-cmd]`).on('click', function () {
+                if (!restoreSelection()) $content.focus();
+                document.execCommand('styleWithCSS', true);
+                document.execCommand($(this).data('cmd'), false, null);
+                saveSelection();
+                $content.trigger('focus');
+            });
+
+            $(`#font-size-${songId}`).on('change', function () {
+                const val = $(this).val();
+                if (!val) return;
+                applyInlineStyle({ fontSize: val });
+            });
+
+            $(`#font-color-${songId}`).on('input', function () {
+                const color = $(this).val();
+                applyColor(color);
+            });
         };
+
+        // === CANCEL EDIT ===
+        window.cancelEdit = function (songId) {
+            const $li = $(`#${songId}`);
+            const $content = $(`#song-content-${songId}`);
+            const $row = $li.find("> .d-flex.flex-row").first();
+
+            const backup = $content.data('backup');
+            if (backup != null) $content.html(backup);
+            $content.removeAttr("contenteditable spellcheck")
+                .removeClass("editable-area p-1 col-8")
+                .addClass("col-9");
+
+            $li.find(".song-edit-header").remove();
+            $li.find(".song-edit-footer").remove();
+
+            $row.find(".admin").removeClass("col-3").addClass("col-3");
+            $li.removeData('edit-mode');
+        };
+
+
+        // ANNULLA: ripristina testo e rimuove header/footer (minimal)
+        window.cancelEdit = function (songId) {
+            const $li = $(`#${songId}`);
+            const $content = $(`#song-content-${songId}`);
+            const $row = $li.find("> .d-flex.flex-row").first();
+
+            // ripristina testo
+            const backup = $content.data('backup');
+            if (backup != null) $content.html(backup);
+            $content.removeAttr("contenteditable spellcheck").removeClass("editable-area")
+                .removeClass("p-1 col-8").addClass("col-9");
+
+            // rimuovi header/footer
+            $li.find(".song-edit-header").remove();
+            $li.find(".song-edit-footer").remove();
+
+            // ripristina colonna admin (se serve)
+            $row.find(".admin").removeClass("col-3").addClass("col-3");
+
+            $li.removeData('edit-mode');
+        };
+
+
+
+
+
+        // ANNULLA: ripristina DOM originale del testo e rimuove header/footer
+        window.cancelEdit = function (songId) {
+            const $li = $(`#${songId}`);
+            const $content = $(`#song-content-${songId}`);
+            const $row = $li.find("> .d-flex.flex-row").first();
+
+            // ripristina testo
+            const backup = $content.data('backup');
+            if (backup != null) $content.html(backup);
+            $content.removeAttr("contenteditable spellcheck").removeClass("editable-area")
+                .removeClass("p-1 col-8").addClass("col-9");
+
+            // rimuovi header/footer
+            $li.find(".song-edit-header").remove();
+            $li.find(".song-edit-footer").remove();
+
+            // ripristina colonna admin
+            $row.find(".admin").removeClass("col-3").addClass("col-3"); // se avevi 3, resta 3; adegua se serve
+
+            $li.removeData('edit-mode');
+        };
+
 
 
         // Funzione per annullare la modifica
@@ -1029,14 +1277,14 @@ async function initializeFirebase() {
             $('.tagify__tag-text').each(function () {
                 categorie.push($(this).text());
             });
-            let tempo = $(`#song-tempo-${songId}`).val();
+            let tempo = $(`#song-tempo-edit-${songId}`).val();
             let bpm = parseInt($(`#bpm-${songId}`).val(), 10);
-            let transVal = parseInt($(`#edit-textarea-${songId}`).attr('transVal'));
+            let transVal = parseInt($(`#transpose-value-${songId}`).text(), 10);
             let number = parseInt($(`#numero-${songId}`).val(), 10);
             let title = $(`#titolo-${songId}`).val();
-            let songHTML = tinymce.get(`edit-textarea-${songId}`).getContent();
+            let songHTML = $(`#song-content-${songId}`).html();
 
-            if (!songHTML.trim() || !title.trim() || (!tempo && tempo != "Seleziona il tempo") || !bpm || !number || categorie.length === 0 || !raccoltaSelezionata) {
+            if (!songHTML.trim() || !title.trim() || (!tempo) || !bpm || !number || categorie.length === 0 || !raccoltaSelezionata) {
                 Swal.fire({
                     icon: 'warning',
                     title: 'Attenzione',
@@ -1450,13 +1698,13 @@ async function initializeTagify(songId) {
 initializeFirebase();
 
 // Registra il Service Worker per abilitare la PWA
-if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => {
-        navigator.serviceWorker.register('js/service-worker.js')
-            .then(reg => console.log('✅ Service Worker registrato correttamente:', reg))
-            .catch(err => console.error('❌ Errore nella registrazione del Service Worker:', err));
-    });
-}
+// if ('serviceWorker' in navigator) {
+//     window.addEventListener('load', () => {
+//         navigator.serviceWorker.register('js/service-worker.js')
+//             .then(reg => console.log('✅ Service Worker registrato correttamente:', reg))
+//             .catch(err => console.error('❌ Errore nella registrazione del Service Worker:', err));
+//     });
+// }
 
 
 // Funzione per l'autenticazione permessi admin
