@@ -1,5 +1,5 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-app.js";
-import { getFirestore, collection, updateDoc, addDoc, doc, setDoc, getDoc, getDocs, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore.js";
+import { getFirestore, collection, updateDoc, addDoc, doc, setDoc, getDoc, getDocs, serverTimestamp, arrayUnion } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore.js";
 import { containsChord, transposeChord } from '/js/transposeUtils.js';
 
 const idCliente = "POGGIOREALE";
@@ -113,16 +113,8 @@ function transposeChords(html, semitone) {
 async function saveSong(raccolta, categories, tempo, bpm, number, title, songHTML) {
   try {
     const clienteRef = doc(db, "Clienti", idCliente);
-    const clienteDoc = await getDoc(clienteRef);
 
-    if (clienteDoc.exists()) {
-      const clienteData = clienteDoc.data();
-      const raccolte = clienteData.raccolte || [];
-      if (!raccolte.includes(raccolta)) {
-        raccolte.push(raccolta);
-        await updateDoc(clienteRef, { raccolte });
-      }
-    }
+    await setDoc(clienteRef, { raccolte: arrayUnion(raccolta) }, { merge: true });
 
     const snapRaccolta = collection(db, "Clienti", idCliente, raccolta);
     const snapCanzoni = await getDocs(snapRaccolta);
