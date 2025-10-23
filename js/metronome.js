@@ -120,7 +120,7 @@ function stopAllExcept(songId) {
   metronomes.forEach((entry, id) => {
     if (id !== songId) {
       entry.metro.stop();
-      if (entry.btn) entry.btn.textContent = "▶️ Metronomo";
+      if (entry.btn) entry.btn.textContent = "▶️";
     }
   });
 }
@@ -134,10 +134,10 @@ export function toggleMetronome(songId) {
 
   if (metro.isRunning) {
     metro.stop();
-    if (btn) btn.textContent = "▶️ Metronomo";
+    if (btn) btn.textContent = "▶️";
   } else {
     metro.start();
-    if (btn) btn.textContent = "⏸️ Stop";
+    if (btn) btn.textContent = "⏸️";
   }
 }
 
@@ -237,10 +237,10 @@ export function toggleMetronomeInEditing({ bpm, tempo, tempoBar, btn, songId } =
   // Toggle
   if (_editingEntry.metro.isRunning) {
     _editingEntry.metro.stop();
-    if (_editingEntry.btn) _editingEntry.btn.textContent = "▶️ Metronomo";
+    if (_editingEntry.btn) _editingEntry.btn.textContent = "▶️";
   } else {
     _editingEntry.metro.start();
-    if (_editingEntry.btn) _editingEntry.btn.textContent = "⏸️ Stop";
+    if (_editingEntry.btn) _editingEntry.btn.textContent = "⏸️";
   }
 }
 
@@ -274,7 +274,7 @@ export function refreshEditingMetronomeParams({ bpm, tempo } = {}) {
 export function stopEditingMetronome() {
   if (!_editingEntry) return;
   _editingEntry.metro.stop();
-  if (_editingEntry.btn) _editingEntry.btn.textContent = "▶️ Metronomo";
+  if (_editingEntry.btn) _editingEntry.btn.textContent = "▶️";
 }
 
 
@@ -359,15 +359,19 @@ export function toggleMetronomeInAdding(opts = {}) {
   _addingMetro.bpm = bpm;
   _addingMetro.beatsPerBar = parseBeatsPerBarFromTempoStr(tempoStr);
 
+  const btn = opts.btn || document.getElementById('metronome-btn') || document.getElementById('metronome-btn-adding');
   if (_addingMetro.on) {
-    // se era acceso: spegni
+    // Se era acceso: spegni
     stopMetronomeInAdding();
+    if (btn) btn.textContent = "▶️";
   } else {
-    // accendi
+    // Accendi
     _addingMetro.on = true;
     _startAddingLoop();
+    if (btn) btn.textContent = "⏸️";
   }
 }
+
 
 // Aggiornamento "live" se l'utente cambia i campi mentre il metronomo è acceso
 export function refreshMetronomeParamsInAdding(partial = {}) {

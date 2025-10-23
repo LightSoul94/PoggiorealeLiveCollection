@@ -640,7 +640,7 @@ async function initializeFirebase() {
                         <button class="btn btn-outline-primary ms-4 mt-2"
                                 onclick="toggleMetronome('${song.id}')"
                                 id="metronome-btn-${song.id}">
-                                ▶️ Metronomo
+                                ▶️
                         </button>
                     </span>
                 </div>
@@ -981,7 +981,7 @@ async function initializeFirebase() {
                     btn: this
                 })"
                 id="metronome-btn-${songId}">
-                ▶️ Metronomo
+                ▶️
             </button>
 
         </div>
