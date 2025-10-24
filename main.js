@@ -279,48 +279,75 @@ async function initializeFirebase() {
 
             // Richiesta conferma eliminazione raccolta selezionata
             async function confermaEliminazioneRaccolta(nomeRaccolta) {
-                const result = await Swal.fire({
-                    title: `Vuoi davvero eliminare la raccolta "${nomeRaccolta}"?`,
-                    text: "Tutti i brani in questa raccolta saranno cancellati.",
-                    icon: 'warning',
-                    showCancelButton: true,
-                    confirmButtonText: 'Sì, elimina',
-                    cancelButtonText: 'Annulla'
-                });
+                if ($('#open-auth').is(':hidden')) {
+                    try {
+                        // 1) Ottengo le info del cliente, incl. password
+                        const clienteRef = doc(db, "Clienti", idCliente);
+                        const clienteSnap = await getDoc(clienteRef);
 
-                if (!result.isConfirmed) return;
+                        if (!clienteSnap.exists()) {
+                            await Swal.fire("Errore", "Cliente non trovato.", "error");
+                            return;
+                        }
 
-                try {
-                    const clienteRef = doc(db, "Clienti", idCliente);
-                    const raccoltaRef = collection(db, "Clienti", idCliente, nomeRaccolta);
-                    const snapshot = await getDocs(raccoltaRef);
+                        const dataCliente = clienteSnap.data() || {};
+                        const settings = dataCliente.settings || {};
+                        const raccolteAttuali = dataCliente.raccolte || [];
+                        const passSalvata = settings.passEliminazione || "";
 
-                    // Elimina ogni documento nella sottocollezione
-                    const deletePromises = snapshot.docs.map((doc) => deleteDoc(doc.ref));
-                    await Promise.all(deletePromises);
+                        // 2) Prompt password
+                        const { isConfirmed, value: passwordInserita } = await Swal.fire({
+                            title: `Vuoi davvero eliminare la raccolta "${nomeRaccolta}"?`,
+                            text: "Tutti i brani in questa raccolta saranno cancellati.",
+                            icon: "warning",
+                            input: "password",
+                            inputPlaceholder: "Inserisci la password",
+                            showCancelButton: true,
+                            confirmButtonText: "Conferma",
+                            cancelButtonText: "Annulla",
+                            preConfirm: (val) => {
+                                if (!val) {
+                                    Swal.showValidationMessage("Inserisci la password.");
+                                    return false;
+                                }
+                                if (val !== passSalvata) {
+                                    Swal.showValidationMessage("Password errata."); // ✅ Rimane nella stessa modale
+                                    return false;
+                                }
+                                return true;
+                            }
+                        });
 
-                    // Rimuovi la raccolta dal documento cliente
-                    const clienteSnap = await getDoc(clienteRef);
-                    if (clienteSnap.exists()) {
-                        let raccolteList = clienteSnap.data().raccolte || [];
-                        raccolteList = raccolteList.filter(r => r !== nomeRaccolta);
+                        if (!isConfirmed) return;
 
-                        // Se la raccolta eliminata era quella selezionata, scegli la prima disponibile
-                        let nuovaSelezione = raccolteList.length > 0 ? raccolteList[0] : "-";
+                        // 3) Elimino tutti i brani nella sottocollezione
+                        const raccoltaRef = collection(db, "Clienti", idCliente, nomeRaccolta);
+                        const snapshot = await getDocs(raccoltaRef);
+                        await Promise.all(snapshot.docs.map((d) => deleteDoc(d.ref)));
+
+                        // 4) Aggiorno la lista raccolte e l'eventuale selezione corrente
+                        const nuoveRaccolte = raccolteAttuali.filter(r => r !== nomeRaccolta);
+                        const nuovaSelezione = nuoveRaccolte.length > 0 ? nuoveRaccolte[0] : "-";
 
                         await updateDoc(clienteRef, {
-                            raccolte: raccolteList,
+                            raccolte: nuoveRaccolte,
                             "settings.raccoltaSelezionata": nuovaSelezione
                         });
+
+                        await Swal.fire("Eliminata!", `La raccolta "${nomeRaccolta}" è stata eliminata.`, "success");
+
+                        // Ricarica raccolta
+                        const $btnAttivo = $('#raccolte-btnGroup .btn.active');
+                        const nomeRaccoltaAttiva = $btnAttivo.text().trim();
+                        loadCollectionSongs(nomeRaccoltaAttiva)
+
+                    } catch (err) {
+                        console.error("Errore nella cancellazione della raccolta:", err);
+                        await Swal.fire("Errore", "Si è verificato un errore durante la cancellazione della raccolta.", "error");
                     }
-
-                    Swal.fire("Eliminata!", `La raccolta "${nomeRaccolta}" è stata eliminata.`, "success");
-
-                } catch (err) {
-                    console.error("Errore nella cancellazione della raccolta:", err);
-                    Swal.fire("Errore", "Si è verificato un errore durante la cancellazione della raccolta.", "error");
                 }
             }
+
         });
 
 
@@ -533,24 +560,27 @@ async function initializeFirebase() {
             });
 
             // Aggiorna le opzioni di ricerca in tempo reale
-            onSnapshot(clienteRef, (doc) => {
+            onSnapshot(clienteRef, async (doc) => {
                 if (doc.exists()) {
                     const searchQuery = doc.data().settings.query.toLowerCase();
                     const isWordSearch = doc.data().settings.flgWordSearch;
                     const selectedRaccolta = doc.data().settings.raccoltaSelezionata;
 
-                    // Imposta il valore del campo di ricerca e lo stato del checkbox
                     $('#search-bar').val(searchQuery);
                     $('#wordSearch').prop('checked', isWordSearch);
+                    $('#raccolte-btnGroup .btn').removeClass('active');
                     $(`#raccolte-btnGroup button`).filter(function () {
                         return $(this).text().trim() === selectedRaccolta;
-                    }).addClass('active', '');
-                    // Applica i filtri alle canzoni
+                    }).addClass('active');
+
+                    // ✅ Carica i brani della raccolta aggiornata (questo mancava sugli altri device)
+                    await loadCollectionSongs(selectedRaccolta);
+
+                    // Ri-applica il filtro
                     filterSongs(searchQuery, selectedRaccolta.toLowerCase());
-                } else {
-                    Swal.fire({ icon: 'error', title: 'Oops...', text: "Il documento 'current_search' non esiste." });
                 }
             });
+
         }
 
 
