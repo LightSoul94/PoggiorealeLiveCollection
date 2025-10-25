@@ -633,7 +633,7 @@ async function initializeFirebase() {
             });
         }
 
-        // Funzione che aggiorna la visualizzazione delle canzoni
+        // Funzione che aggiorna la visualizzazione delle canzoni della singola raccolta selezionata
         async function loadCollectionSongs(nomeRaccolta) {
             // Recupera i brani dalla sottocollezione
             const raccoltaRef = collection(db, "Clienti", idCliente, nomeRaccolta);
