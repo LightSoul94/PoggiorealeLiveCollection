@@ -665,7 +665,7 @@ async function initializeFirebase() {
             <li class='list-group-item mb-2 p-0' id="${song.id}" categorie="${song.categorie}" tempo="${song.tempo}" bpm="${song.bpm ?? ''}" titolo="${song.titolo}" numero="${song.numero}" dataInserimento="${song.dataInserimento}" ultimaModifica="${song.ultimaModifica}" raccolta="${nomeRaccolta}">
             
                 <div class="d-flex align-items-center mb-3 p-2 border rounded bg-light" id="song-tempo-${song.id}" style="color: red;">
-                    <span class="me-4 fs-4 fw-bold color-red">
+                    <span class="me-4 fs-6 fw-bold color-red">
                         <strong>Tempo: ${song.tempo ?? '-'} | BPM: ${song.bpm ?? '-'}</strong>
                         <button class="btn btn-outline-primary ms-4 mt-2"
                                 onclick="toggleMetronome('${song.id}')"
@@ -751,7 +751,8 @@ async function initializeFirebase() {
             const adminCookie = getCookie("isAdmin");
             if (adminCookie === "1") {
                 $('.admin').show();
-                $('#open-auth').hide();
+                // $('#open-auth').hide();
+                $('#open-auth').css('opacity', '0');
             } else {
                 // Nascondi inizialmente gli elementi di amministrazione
                 $('.admin').hide();
@@ -1783,8 +1784,12 @@ function sbloccaAdmin() {
     setCookie("isAdmin", "1", 7);
 
     // Nascondi tasto di sblocco
-    $('#open-auth').hide();
-    $('#auth').hide();
+    // $('#open-auth').hide();
+    // $('#auth').hide();
+
+    $('#open-auth, #auth').css('opacity', '0');
+    $('#open-auth, #auth').css('pointer-events', 'none');
+
 }
 
 // Funzioni per la gestione dei cookie

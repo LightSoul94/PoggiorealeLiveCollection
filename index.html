@@ -34,8 +34,8 @@
         // solo se ti serve compatibilità con inline onclick:
         window.toggleMetronome = toggleMetronome;
         window.refreshMetronomeParams = refreshMetronomeParams;
-      </script>
-      
+    </script>
+
 
     <!-- File manifest -->
     <!-- <link rel="manifest" href="manifest.json">
@@ -46,26 +46,28 @@
 
 <body>
     <div class="container mt-4">
-        <!-- Autenticazione -->
-        <div class="d-flex flex-row-reverse col-12 d-flex justify-content-between">
+        <!-- Intestazione -->
+        <div class="d-flex flex-row-reverse justify-content-between align-items-center col-12 mb-2">
+
             <!-- Lucchetto admin -->
-            <button id="open-auth" class="btn btn-warning">
+            <button id="open-auth" class="btn btn-warning m-0">
                 <i class="fa fa-lock"></i>
             </button>
 
             <!-- Intestazione -->
-            <h1 class="text-center ">Raccolta Poggioreale</h1>
+            <h1 class="text-center mb-0">Raccolta Poggioreale</h1>
 
             <!-- Switch per la sincronizzazione -->
             <div class="form-check form-switch d-inline-flex align-items-center p-0">
                 <label class="form-check-label mb-0 me-5 pe-3" for="syncSwitch">
-                    <!-- <span id="syncText">Live Sync Attiva</span> -->
                     <i id="syncIcon" class="bi bi-cloud ms-2"></i>
                 </label>
                 <input type="checkbox" class="form-check-input custom-switch" id="syncSwitch" checked
                     onclick="toggleSync()">
             </div>
-        </div>        
+
+        </div>
+
 
         <!-- Segmented Button -->
         <div class="row mb-4">
@@ -76,7 +78,7 @@
             </div>
         </div>
 
-        
+
 
         <!-- Pulsante PDF -->
         <!-- <div class="row d-flex justify-content-between mb-3">
@@ -84,12 +86,12 @@
         </div> -->
 
         <!-- Autenticazione -->
-         <div class="d-flex justify-content-between">
+        <!-- <div class="d-flex justify-content-between">
          <div id="auth" class="row mt-4">
-            <div class="col-12">
-                <!-- Elementi di autenticazione -->
-            </div>
-        </div></div>
+            <div class="col-12"> -->
+        <!-- Elementi di autenticazione -->
+        <!-- </div>
+        </div></div> -->
 
 
         <!-- Raccolta -->
@@ -102,20 +104,20 @@
                         <button id="open-index" class="btn btn-secondary">
                             <i class="fa fa-list"></i> Indice
                         </button>
-            
+
                         <!-- Icona PDF vicino all'indice -->
                         <button onclick="exportToPDF()" class="btn btn-outline-danger" id="exportSongs">
                             <i class="fa fa-file-pdf"></i>
                         </button>
                     </div>
-            
+
                     <!-- Tasto nuovo brano (sempre a destra) -->
                     <button onclick="window.location.href='addSong.html'" class="btn btn-primary admin">
                         <i class="fa-solid fa-plus"></i> Nuovo brano
                     </button>
                 </div>
             </div>
-            
+
             <!-- Barra di ricerca -->
             <div>
                 <div class="input-group mb-3" id="searchBarRaccolta">
