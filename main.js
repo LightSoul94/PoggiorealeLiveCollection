@@ -1571,7 +1571,7 @@ async function initializeFirebase() {
                     Swal.close();
                 });
 
-                // Gestore eventi per ordinamento
+                // Gestore eventi per ordinamento indice
                 $(document).off('click', '.btn-group .btn').on('click', '.btn-group .btn', function () {
                     $('#btn-per-categorie').removeClass('active');
                     $('#btn-ordine-numerico').removeClass('active');
@@ -1589,22 +1589,40 @@ async function initializeFirebase() {
                     } else if (selectedButtonId === 'btn-ordine-numerico') {
                         $('#sort-alpha-toggle').remove();
 
-                        // Ordina numericamente
-                        const indiceNumerico = [];
-                        Object.keys(indice).forEach(categoria => {
-                            indice[categoria].forEach(canzone => {
-                                indiceNumerico.push({ categoria, ...canzone });
-                            });
-                        });
+                        // 👉 lista unica (senza duplicati tra categorie)
+                        const indiceNumerico = buildUniqueListFromIndex(indice);
 
-                        // Ordina i cantici in base al numero in modo crescente di default
-                        indiceNumerico.sort((a, b) => parseInt(a.numero) - parseInt(b.numero));
+                        // Ordina per numero (crescente di default)
+                        indiceNumerico.sort((a, b) => (parseInt(a.numero) || 999999) - (parseInt(b.numero) || 999999));
+
                         let htmlNumerico = '<div class="text-start"><ul>';
                         indiceNumerico.forEach(canzone => {
                             htmlNumerico += `<li><a href="#" class="indice-titolo" data-titolo="${canzone.titolo}" data-numero="${canzone.numero}">${canzone.numero}${canzone.titolo}</a></li>`;
                         });
                         htmlNumerico += '</ul></div>';
                         $('#indice-contenuto').html(htmlNumerico);
+
+                        // Toggle crescente/decrescente
+                        if (!$('#sort-toggle').length) {
+                            $('#indice-contenuto').before('<div><button id="sort-toggle" class="btn btn-secondary mb-2">Ordina Crescente <i class="fas fa-sort-numeric-down"></i></button></div>');
+                        }
+                        $('#sort-toggle').off('click').on('click', function () {
+                            const isAscending = $(this).find('i').hasClass('fa-sort-numeric-down');
+                            indiceNumerico.sort((a, b) =>
+                                isAscending
+                                    ? (parseInt(b.numero) || 999999) - (parseInt(a.numero) || 999999)
+                                    : (parseInt(a.numero) || 999999) - (parseInt(b.numero) || 999999)
+                            );
+                            $(this).html(isAscending ? 'Ordina Decrescente <i class="fas fa-sort-numeric-up"></i>' : 'Ordina Crescente <i class="fas fa-sort-numeric-down"></i>');
+
+                            let html = '<div class="text-start"><ul>';
+                            indiceNumerico.forEach(c => {
+                                html += `<li><a href="#" class="indice-titolo" data-titolo="${c.titolo}" data-numero="${c.numero}">${c.numero}${c.titolo}</a></li>`;
+                            });
+                            html += '</ul></div>';
+                            $('#indice-contenuto').html(html);
+                        });
+
 
                         // Aggiungi il pulsante per l'ordinamento crescente/decrescente
                         if (!$('#sort-toggle').length) {
@@ -1632,60 +1650,36 @@ async function initializeFirebase() {
                         $('#sort-toggle').remove();
                         $('#sort-alpha-toggle').remove();
 
-                        // Ordina dalla A-Z
-                        const indiceAlfabetico = [];
-                        Object.keys(indice).forEach(categoria => {
-                            indice[categoria].forEach(canzone => {
-                                indiceAlfabetico.push({ categoria, ...canzone });
-                            });
+                        // 👉 lista unica (senza duplicati tra categorie)
+                        const indiceAlfabetico = buildUniqueListFromIndex(indice);
+
+                        // Ordina A→Z di default
+                        indiceAlfabetico.sort((a, b) => a.titolo.toLowerCase().localeCompare(b.titolo.toLowerCase()));
+                        let htmlAlf = '<div class="text-start"><ul>';
+                        indiceAlfabetico.forEach(c => {
+                            htmlAlf += `<li><a href="#" class="indice-titolo" data-titolo="${c.titolo}" data-numero="${c.numero}">${c.numero}${c.titolo}</a></li>`;
                         });
+                        htmlAlf += '</ul></div>';
+                        $('#indice-contenuto').html(htmlAlf);
 
-                        // Ordina i cantici in base al titolo in modo crescente di default
-                        indiceAlfabetico.sort((a, b) => {
-                            const titoloA = a.titolo.toLowerCase();
-                            const titoloB = b.titolo.toLowerCase();
-
-                            return titoloA < titoloB ? -1 : titoloA > titoloB ? 1 : 0;
-                        });
-
-                        let htmlAlfabetico = '<div class="text-start"><ul>';
-                        indiceAlfabetico.forEach(canzone => {
-                            htmlAlfabetico += `<li><a href="#" class="indice-titolo" data-titolo="${canzone.titolo}" data-numero="${canzone.numero}">${canzone.numero}${canzone.titolo}</a></li>`;
-                        });
-                        htmlAlfabetico += '</ul></div>';
-                        $('#indice-contenuto').html(htmlAlfabetico);
-
-
-                        // Aggiungi il pulsante per l'ordinamento crescente/decrescente
-                        if (!$('#sort-toggle').length) {
+                        // Toggle A→Z / Z→A
+                        if (!$('#sort-alpha-toggle').length) {
                             $('#indice-contenuto').before('<div><button id="sort-alpha-toggle" class="btn btn-secondary mb-2">Ordina Crescente <i class="fas fa-sort-alpha-down"></i></button></div>');
                         }
-
                         $('#sort-alpha-toggle').off('click').on('click', function () {
                             const isAscending = $(this).find('i').hasClass('fa-sort-alpha-down');
-
-                            // Ordina alfabeticamente i titoli in base all'ordine crescente o decrescente
-                            indiceAlfabetico.sort((a, b) => {
-                                const titoloA = a.titolo.toLowerCase();
-                                const titoloB = b.titolo.toLowerCase();
-
-                                if (isAscending) {
-                                    return titoloA > titoloB ? -1 : titoloA < titoloB ? 1 : 0;
-                                } else {
-                                    return titoloA < titoloB ? -1 : titoloA > titoloB ? 1 : 0;
-                                }
-                            });
-
-                            // Cambia l'icona in base all'ordinamento
+                            indiceAlfabetico.sort((a, b) => isAscending
+                                ? b.titolo.toLowerCase().localeCompare(a.titolo.toLowerCase())
+                                : a.titolo.toLowerCase().localeCompare(b.titolo.toLowerCase())
+                            );
                             $(this).html(isAscending ? 'Ordina Decrescente <i class="fas fa-sort-alpha-up"></i>' : 'Ordina Crescente <i class="fas fa-sort-alpha-down"></i>');
 
-                            // Rigenera l'HTML con l'ordinamento applicato
-                            let htmlAlfabetico = '<div class="text-start"><ul>';
-                            indiceAlfabetico.forEach(canzone => {
-                                htmlAlfabetico += `<li><a href="#" class="indice-titolo" data-titolo="${canzone.titolo}" data-numero="${canzone.numero}">${canzone.numero}${canzone.titolo}</a></li>`;
+                            let html = '<div class="text-start"><ul>';
+                            indiceAlfabetico.forEach(c => {
+                                html += `<li><a href="#" class="indice-titolo" data-titolo="${c.titolo}" data-numero="${c.numero}">${c.numero}${c.titolo}</a></li>`;
                             });
-                            htmlAlfabetico += '</ul></div>';
-                            $('#indice-contenuto').html(htmlAlfabetico);
+                            html += '</ul></div>';
+                            $('#indice-contenuto').html(html);
                         });
                     }
                 });
@@ -1811,6 +1805,25 @@ function getCookie(nome) {
     }
     return "";
 }
+
+//// Dedupe: costruisce una lista unica (un solo elemento per canto)
+// partendo dall'indice per categorie.
+function buildUniqueListFromIndex(indice) {
+    const seen = new Set();
+    const list = [];
+    Object.keys(indice).forEach(categoria => {
+        indice[categoria].forEach(canzone => {
+            // chiave univoca: numero + titolo (case-insensitive)
+            const key = `${String(canzone.numero || '').trim()}__${String(canzone.titolo || '').trim().toLowerCase()}`;
+            if (!seen.has(key)) {
+                seen.add(key);
+                list.push({ categoria, ...canzone });
+            }
+        });
+    });
+    return list;
+}
+
 
 // Gestisci l'evento di ricaricamento forzato (Ctrl + F5)
 $(window).on('keydown', function (event) {
