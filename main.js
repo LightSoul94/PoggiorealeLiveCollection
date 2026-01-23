@@ -22,6 +22,14 @@ import {
   refreshEditingMetronomeParams
 } from "/js/metronome.js";
 
+// tasto per download backup
+import { downloadBackupJSON } from "/js/downloadBackup.js";
+
+// tasto per caricare backup
+import { wireImportUI } from "/js/importBackup.js";
+
+
+
 window.toggleMetronome = toggleMetronome;
 window.toggleMetronomeInEditing = toggleMetronomeInEditing;
 window.refreshEditingMetronomeParams = refreshEditingMetronomeParams;
@@ -77,11 +85,85 @@ async function initializeFirebase() {
       throw new Error("Errore: Firebase config mancante (configurator['firebaseDB']).");
     }
 
+    // const app = initializeApp(firebaseConfig);
+    // db = getFirestore(app);
+
+    // // eventi UI
+    // wireSearchUI();
+
     const app = initializeApp(firebaseConfig);
     db = getFirestore(app);
 
     // eventi UI
     wireSearchUI();
+    // wireImportUI({ bootstrapFromClienteDoc }); // ✅ QUI
+    // tasto per caricare backup
+    wireImportUI({ db, idCliente, bootstrapFromClienteDoc });
+
+
+    // Apri menu di esportazione / importazione
+    $('#exportMenu').on('click', function () {
+      Swal.fire({
+        title: 'Gestione dati',
+        html: `
+              <div class="d-grid gap-2 mt-3">
+
+                  <!-- EXPORT -->
+                  <button id="swal-export-pdf" class="btn btn-outline-danger">
+                      <i class="fa fa-file-pdf me-2"></i> Esporta PDF
+                  </button>
+
+                  <button id="swal-export-json" class="btn btn-outline-primary">
+                      <i class="bi bi-download me-2"></i> Scarica Backup JSON
+                  </button>
+
+                  <!-- DIVIDER -->
+                  <hr class="my-3">
+
+                  <!-- IMPORT -->
+                  <button id="swal-import-json" class="btn btn-outline-success">
+                      <i class="bi bi-upload me-2"></i> Importa Backup JSON
+                  </button>
+
+                  <small class="text-muted text-start">
+                      ⚠️ L’import sovrascriverà i dati esistenti nella destinazione selezionata.
+                  </small>
+              </div>
+          `,
+        showConfirmButton: false,
+        showCancelButton: true,
+        cancelButtonText: 'Chiudi',
+        didOpen: () => {
+
+          // EXPORT PDF
+          document.getElementById('swal-export-pdf')
+            .addEventListener('click', () => {
+              Swal.close();
+              exportToPDF();
+            });
+
+          // EXPORT JSON
+          document.getElementById('swal-export-json')
+            .addEventListener('click', () => {
+              Swal.close();
+              downloadBackupJSON({ db, idCliente });
+            });
+
+          // IMPORT JSON
+          document.getElementById('swal-import-json')
+            .addEventListener('click', () => {
+              Swal.close();
+              // $('#importBackupFile').val('');
+              // $('#importBackupFile').trigger('click');
+              const input = document.getElementById('importBackupFile');
+              input.value = '';
+              input.click();
+            });
+        }
+      });
+    });
+
+
 
     // export PDF
     window.exportToPDF = function () {

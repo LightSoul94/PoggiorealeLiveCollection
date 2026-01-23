@@ -105,10 +105,11 @@
                             <i class="fa fa-list"></i> Indice
                         </button>
 
-                        <!-- Icona PDF vicino all'indice -->
-                        <button onclick="exportToPDF()" class="btn btn-outline-danger" id="exportSongs">
-                            <i class="fa fa-file-pdf"></i>
-                        </button>
+                        <button id="exportMenu" class="btn btn-outline-danger">
+                            <i class="fa fa-file-export"></i>
+                        </button> 
+                        <input type="file" id="importBackupFile" accept="application/json" hidden />
+                       
                     </div>
 
                     <!-- Tasto nuovo brano (sempre a destra) -->
