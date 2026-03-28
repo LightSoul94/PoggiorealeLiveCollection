@@ -10,6 +10,8 @@ import {
   getDoc,
   setDoc,
   deleteDoc,
+  writeBatch,
+  serverTimestamp,
   Timestamp
 } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore.js";
 
@@ -307,7 +309,6 @@ function renderRaccolteButtons(raccolte, selected) {
 
   const $group = $("#raccolte-btnGroup");
 
-  // ottimizzazione: ricrea sempre (semplice, stabile)
   $group.empty();
 
   [...raccolte].sort().forEach((nomeRaccolta) => {
@@ -338,16 +339,16 @@ function renderRaccolteButtons(raccolte, selected) {
     $group.append($btn);
   });
 
-  // hook: cancellazione raccolta su doppio click / contextmenu (come avevi)
-  wireDeleteCollectionGesture();
+  // hook: menu raccolta su doppio click / contextmenu
+  wireCollectionGesture();
 }
 
 // ========================
-// DELETE COLLECTION GESTURE
+// COLLECTION ACTION GESTURE
 // ========================
-function wireDeleteCollectionGesture() {
+function wireCollectionGesture() {
   // evita doppio bind
-  $("#raccolte-btnGroup").off("click contextmenu", ".btn.__delGesture");
+  $("#raccolte-btnGroup").off("click contextmenu", ".btn");
 
   let clickCounter = 0;
   let lastClickedText = "";
@@ -358,7 +359,7 @@ function wireDeleteCollectionGesture() {
     const $btn = $(this);
     const currentText = $btn.text().trim();
 
-    // solo se attivo
+    // procede solo sulla raccolta attiva
     if (!$btn.hasClass("active")) {
       clickCounter = 0;
       lastClickedText = "";
@@ -367,10 +368,11 @@ function wireDeleteCollectionGesture() {
 
     if (currentText === lastClickedText) {
       clickCounter++;
+
       if (clickCounter >= 2) {
         clickCounter = 0;
         lastClickedText = "";
-        await confermaEliminazioneRaccolta(currentText);
+        await menuRaccolta(currentText);
       }
     } else {
       clickCounter = 1;
@@ -379,6 +381,451 @@ function wireDeleteCollectionGesture() {
   });
 }
 
+// ========================
+// COLLECTION ACTION MENU
+// ========================
+async function menuRaccolta(nomeRaccolta) {
+
+  const html = `
+    <div class="d-flex flex-column gap-2">
+      <button type="button" class="btn btn-outline-primary action-btn mb-2" data-action="rename">
+        ✏️ Rinomina raccolta
+      </button>
+
+      <button type="button" class="btn btn-outline-danger action-btn mb-2" data-action="delete">
+        🗑️ Elimina raccolta
+      </button>
+
+      <button type="button" class="btn btn-outline-secondary action-btn" data-action="duplicate">
+        📄 Duplica raccolta
+      </button>
+    </div>
+  `;
+
+  await Swal.fire({
+    title: `Gestisci "${nomeRaccolta}"`,
+    html: html,
+    showConfirmButton: false,
+    showCloseButton: true,
+    didOpen: () => {
+      const container = Swal.getHtmlContainer();
+      if (!container) return;
+
+      container.querySelectorAll(".action-btn").forEach((btn) => {
+        btn.addEventListener("click", async () => {
+          const action = btn.dataset.action;
+
+          Swal.close();
+
+          await handleCollectionAction(action, nomeRaccolta);
+        });
+      });
+    }
+  });
+}
+
+// ========================
+// COLLECTION ACTION DISPATCHER
+// ========================
+async function handleCollectionAction(action, nomeRaccolta) {
+  switch (action) {
+    case "rename":
+      await confermaRinominaRaccolta(nomeRaccolta);
+      break;
+
+    case "delete":
+      await confermaEliminazioneRaccolta(nomeRaccolta);
+      break;
+
+    case "duplicate":
+      await duplicaRaccolta(nomeRaccolta);
+      break;
+
+    default:
+      console.warn("Azione non gestita:", action);
+      break;
+  }
+}
+
+// ========================
+// ADMIN PASSWORD REQUEST
+// ========================
+async function richiediPasswordAdmin() {
+  try {
+    const clienteRef = doc(db, "Clienti", idCliente);
+    const clienteSnap = await getDoc(clienteRef);
+
+    if (!clienteSnap.exists()) {
+      await Swal.fire("Errore", "Cliente non trovato.", "error");
+      return false;
+    }
+
+    const dataCliente = clienteSnap.data() || {};
+    const settings = dataCliente.settings || {};
+    const passSalvata = settings.passEliminazione || "";
+
+    const { isConfirmed } = await Swal.fire({
+      title: "Conferma operazione",
+      text: "Inserisci la password amministratore",
+      icon: "warning",
+      input: "password",
+      inputPlaceholder: "Inserisci la password",
+      showCancelButton: true,
+      confirmButtonText: "Conferma",
+      cancelButtonText: "Annulla",
+      preConfirm: (val) => {
+        if (!val) {
+          Swal.showValidationMessage("Inserisci la password.");
+          return false;
+        }
+
+        if (val !== passSalvata) {
+          Swal.showValidationMessage("Password errata.");
+          return false;
+        }
+
+        return true;
+      }
+    });
+
+    return isConfirmed;
+  } catch (err) {
+    console.error("Errore nella verifica password admin:", err);
+    await Swal.fire("Errore", "Impossibile verificare la password.", "error");
+    return false;
+  }
+}
+
+// ========================
+// RENAME COLLECTION
+// ========================
+async function confermaRinominaRaccolta(nomeRaccolta) {
+  const isAdmin = getCookie("isAdmin") === "1";
+  if (!isAdmin) return;
+
+  try {
+    const okPassword = await richiediPasswordAdmin();
+    if (!okPassword) return;
+
+    const clienteRef = doc(db, "Clienti", idCliente);
+    const clienteSnap = await getDoc(clienteRef);
+
+    if (!clienteSnap.exists()) {
+      await Swal.fire("Errore", "Cliente non trovato.", "error");
+      return;
+    }
+
+    const dataCliente = clienteSnap.data() || {};
+    const raccolteAttuali = dataCliente.raccolte || [];
+
+    const { isConfirmed, value } = await Swal.fire({
+      title: "Rinomina raccolta",
+      input: "text",
+      inputLabel: "Nuovo nome raccolta",
+      inputValue: nomeRaccolta,
+      inputPlaceholder: "Inserisci il nuovo nome",
+      showCancelButton: true,
+      confirmButtonText: "Rinomina",
+      cancelButtonText: "Annulla",
+      inputValidator: (val) => {
+        const nuovoNome = String(val || "").trim();
+
+        if (!nuovoNome) {
+          return "Inserisci un nome valido.";
+        }
+
+        if (nuovoNome === nomeRaccolta) {
+          return "Il nuovo nome deve essere diverso da quello attuale.";
+        }
+
+        if (raccolteAttuali.includes(nuovoNome)) {
+          return "Esiste già una raccolta con questo nome.";
+        }
+
+        return null;
+      }
+    });
+
+    if (!isConfirmed) return;
+
+    const nuovoNome = String(value || "").trim();
+
+    Swal.fire({
+      title: "Rinomina in corso...",
+      html: "Attendi mentre la raccolta viene rinominata.",
+      allowOutsideClick: false,
+      allowEscapeKey: false,
+      showConfirmButton: false,
+      didOpen: () => {
+        Swal.showLoading();
+      }
+    });
+
+    await renameCollectionRequest({
+      idCliente,
+      oldName: nomeRaccolta,
+      newName: nuovoNome
+    });
+
+    Swal.close();
+
+    await Swal.fire("Fatto!", `La raccolta è stata rinominata in "${nuovoNome}".`, "success");
+
+    currentSelectedRaccolta = nuovoNome;
+    await loadCollectionSongs(nuovoNome);
+
+    filterSongs(
+      String($("#search-bar").val() || "").toLowerCase().trim(),
+      nuovoNome.toLowerCase()
+    );
+
+  } catch (err) {
+    console.error("Errore nella rinomina raccolta:", err);
+    Swal.close();
+    await Swal.fire("Errore", err.message || "Si è verificato un errore durante la rinomina.", "error");
+  }
+}
+
+// ========================
+// DUPLICATE COLLECTION
+// ========================
+async function duplicaRaccolta(nomeRaccolta) {
+  const isAdmin = getCookie("isAdmin") === "1";
+  if (!isAdmin) return;
+
+  try {
+    const okPassword = await richiediPasswordAdmin();
+    if (!okPassword) return;
+
+    const clienteRef = doc(db, "Clienti", idCliente);
+    const clienteSnap = await getDoc(clienteRef);
+
+    if (!clienteSnap.exists()) {
+      await Swal.fire("Errore", "Cliente non trovato.", "error");
+      return;
+    }
+
+    const dataCliente = clienteSnap.data() || {};
+    const raccolteAttuali = dataCliente.raccolte || [];
+
+    const { isConfirmed, value } = await Swal.fire({
+      title: "Duplica raccolta",
+      input: "text",
+      inputLabel: "Nome nuova raccolta",
+      inputValue: `${nomeRaccolta} - Copia`,
+      inputPlaceholder: "Inserisci il nome della copia",
+      showCancelButton: true,
+      confirmButtonText: "Duplica",
+      cancelButtonText: "Annulla",
+      inputValidator: (val) => {
+        const nuovoNome = String(val || "").trim();
+
+        if (!nuovoNome) {
+          return "Inserisci un nome valido.";
+        }
+
+        if (nuovoNome === nomeRaccolta) {
+          return "Il nome della copia deve essere diverso da quello originale.";
+        }
+
+        if (raccolteAttuali.includes(nuovoNome)) {
+          return "Esiste già una raccolta con questo nome.";
+        }
+
+        return null;
+      }
+    });
+
+    if (!isConfirmed) return;
+
+    const nuovoNome = String(value || "").trim();
+
+    Swal.fire({
+      title: "Duplicazione in corso...",
+      html: "Attendi mentre la raccolta viene duplicata.",
+      allowOutsideClick: false,
+      allowEscapeKey: false,
+      showConfirmButton: false,
+      didOpen: () => {
+        Swal.showLoading();
+      }
+    });
+
+    await duplicateCollectionRequest({
+      idCliente,
+      sourceName: nomeRaccolta,
+      targetName: nuovoNome
+    });
+
+    Swal.close();
+
+    await Swal.fire(
+      "Fatto!",
+      `La raccolta "${nomeRaccolta}" è stata duplicata in "${nuovoNome}".`,
+      "success"
+    );
+
+  } catch (err) {
+    console.error("Errore nella duplicazione raccolta:", err);
+    Swal.close();
+    await Swal.fire(
+      "Errore",
+      err.message || "Si è verificato un errore durante la duplicazione.",
+      "error"
+    );
+  }
+}
+
+async function duplicateCollectionRequest({ idCliente, sourceName, targetName }) {
+  try {
+    console.log("=== DUPLICATE START ===", { idCliente, sourceName, targetName });
+
+    if (!idCliente || !sourceName || !targetName) {
+      throw new Error("Parametri duplicazione non validi.");
+    }
+
+    const source = String(sourceName).trim();
+    const target = String(targetName).trim();
+
+    if (!source || !target) {
+      throw new Error("Nome raccolta sorgente o destinazione non valido.");
+    }
+
+    if (source === target) {
+      throw new Error("Il nome della raccolta duplicata deve essere diverso da quello originale.");
+    }
+
+    const clienteRef = doc(db, "Clienti", idCliente);
+    const clienteSnap = await getDoc(clienteRef);
+
+    if (!clienteSnap.exists()) {
+      throw new Error("Cliente non trovato.");
+    }
+
+    const dataCliente = clienteSnap.data() || {};
+    const raccolteAttuali = Array.isArray(dataCliente.raccolte) ? dataCliente.raccolte : [];
+
+    if (!raccolteAttuali.includes(source)) {
+      throw new Error(`La raccolta sorgente "${source}" non esiste.`);
+    }
+
+    if (raccolteAttuali.includes(target)) {
+      throw new Error(`Esiste già una raccolta con il nome "${target}".`);
+    }
+
+    const sourceRef = collection(db, "Clienti", idCliente, source);
+    const targetRef = collection(db, "Clienti", idCliente, target);
+
+    const snapshot = await getDocs(sourceRef);
+    console.log("Documenti trovati nella raccolta sorgente:", snapshot.docs.length);
+
+    const batch = writeBatch(db);
+
+    snapshot.docs.forEach((songDoc) => {
+      const newDocRef = doc(targetRef, songDoc.id);
+
+      batch.set(newDocRef, {
+        ...songDoc.data(),
+        ultimaModifica: serverTimestamp()
+      });
+    });
+
+    batch.update(clienteRef, {
+      raccolte: [...raccolteAttuali, target]
+    });
+
+    await batch.commit();
+
+    console.log("=== DUPLICATE COMMIT OK ===");
+    return true;
+
+  } catch (err) {
+    console.error("=== DUPLICATE ERROR ===", err);
+    throw err;
+  }
+}
+
+// ========================
+// RENAME REQUEST WRAPPER
+// ========================
+async function renameCollectionRequest({ idCliente, oldName, newName }) {
+  try {
+    console.log("=== RENAME START ===", { idCliente, oldName, newName });
+
+    if (!idCliente || !oldName || !newName) {
+      throw new Error("Parametri rinomina non validi.");
+    }
+
+    const source = String(oldName).trim();
+    const target = String(newName).trim();
+
+    if (!source || !target) {
+      throw new Error("Nome raccolta vecchio o nuovo non valido.");
+    }
+
+    if (source === target) {
+      throw new Error("Il nuovo nome deve essere diverso da quello attuale.");
+    }
+
+    const clienteRef = doc(db, "Clienti", idCliente);
+    const clienteSnap = await getDoc(clienteRef);
+
+    if (!clienteSnap.exists()) {
+      throw new Error("Cliente non trovato.");
+    }
+
+    const dataCliente = clienteSnap.data() || {};
+    const raccolteAttuali = Array.isArray(dataCliente.raccolte) ? dataCliente.raccolte : [];
+    const raccoltaSelezionata = dataCliente.settings?.raccoltaSelezionata || "-";
+
+    if (!raccolteAttuali.includes(source)) {
+      throw new Error(`La raccolta sorgente "${source}" non esiste.`);
+    }
+
+    if (raccolteAttuali.includes(target)) {
+      throw new Error(`Esiste già una raccolta con il nome "${target}".`);
+    }
+
+    // 1. Duplica la raccolta
+    await duplicateCollectionRequest({
+      idCliente,
+      sourceName: source,
+      targetName: target
+    });
+
+    console.log("Duplicazione completata con successo.");
+
+    // 2. Elimina tutti i documenti dalla vecchia raccolta
+    const sourceRef = collection(db, "Clienti", idCliente, source);
+    const snapshot = await getDocs(sourceRef);
+
+    const deleteBatch = writeBatch(db);
+
+    snapshot.docs.forEach((songDoc) => {
+      deleteBatch.delete(songDoc.ref);
+    });
+
+    // 3. Aggiorna raccolta selezionata se necessario
+    if (raccoltaSelezionata === source) {
+      deleteBatch.update(clienteRef, {
+        "settings.raccoltaSelezionata": target
+      });
+    }
+
+    await deleteBatch.commit();
+
+    console.log("=== RENAME COMPLETED OK ===");
+    return true;
+
+  } catch (err) {
+    console.error("=== RENAME ERROR ===", err);
+    throw err;
+  }
+}
+
+// ========================
+// DELETE REQUEST WRAPPER
+// ========================
 async function confermaEliminazioneRaccolta(nomeRaccolta) {
   if ($("#open-auth").is(":hidden")) return;
 
@@ -836,7 +1283,7 @@ function applyAdminVisibility() {
 }
 
 // ========================
-// EDIT SONG (la tua versione, ripulita nei punti critici)
+// EDIT SONG
 // ========================
 window.editSong = async function (songId) {
   const $li = $(`#${songId}`);
