@@ -44,6 +44,8 @@ let db = null;
 
 let isSyncActive = true;
 let isRemoteSearchUpdate = false;
+let isTypingSearch = false;
+let timerCronologiaRicerca = null;
 
 // stato corrente UI / sync
 let currentSelectedRaccolta = null;
@@ -270,11 +272,29 @@ function startClienteRealtime() {
     renderRaccolteButtons(newRaccolte, newSelected);
 
     // 2) aggiorna search + checkbox (senza triggerare scrittura)
+    // if (newQuery !== currentSearchQuery) {
+    //   currentSearchQuery = newQuery;
+    //   isRemoteSearchUpdate = true;
+    //   $("#search-bar").val(newQuery);
+    //   isRemoteSearchUpdate = false;
+    // }
+
     if (newQuery !== currentSearchQuery) {
       currentSearchQuery = newQuery;
-      isRemoteSearchUpdate = true;
-      $("#search-bar").val(newQuery);
-      isRemoteSearchUpdate = false;
+
+      // NON sovrascrivere mentre l'utente sta scrivendo
+      if (!isTypingSearch) {
+        isRemoteSearchUpdate = true;
+
+        const input = $("#search-bar");
+
+        // aggiorna solo se realmente diverso
+        if (input.val() !== newQuery) {
+          input.val(newQuery);
+        }
+
+        isRemoteSearchUpdate = false;
+      }
     }
 
     if (newWord !== currentFlgWordSearch) {
@@ -899,32 +919,54 @@ function wireSearchUI() {
   let searchDebounceTimer = null;
   let lastSearchSent = null;
 
-  $("#search-bar").off("input").on("input", function () {
-    if (isRemoteSearchUpdate) return;
+  $("#search-bar")
+    .off("focus blur input")
+    .on("focus", function () {
+      isTypingSearch = true;
+    })
+    .on("blur", function () {
+      setTimeout(() => {
+        isTypingSearch = false;
+      }, 200);
+    })
+    .on("input", function () {
+      if (isRemoteSearchUpdate) return;
 
-    const searchQuery = String($(this).val() || "").toLowerCase().trim();
-    const selectedRaccolta = ($("#raccolte-btnGroup .btn.active").text() || "").trim().toLowerCase();
+      isTypingSearch = true;
 
-    // filtro immediato locale
-    filterSongs(searchQuery, selectedRaccolta);
+      const searchQuery = String($(this).val() || "").toLowerCase().trim();
+      const selectedRaccolta = ($("#raccolte-btnGroup .btn.active").text() || "").trim().toLowerCase();
 
-    // sync OFF => stop
-    if (!isSyncActive) return;
+      filterSongs(searchQuery, selectedRaccolta);
 
-    clearTimeout(searchDebounceTimer);
-    searchDebounceTimer = setTimeout(async () => {
-      if (searchQuery === lastSearchSent) return;
-      lastSearchSent = searchQuery;
+      clearTimeout(timerCronologiaRicerca);
 
-      try {
-        await updateDoc(doc(db, "Clienti", idCliente), {
-          "settings.query": searchQuery
-        });
-      } catch (err) {
-        console.error("Errore update settings.query:", err);
-      }
-    }, 300);
-  });
+      timerCronologiaRicerca = setTimeout(async () => {
+        isTypingSearch = false;
+
+        if (searchQuery.length >= 2) {
+          await salvaCronologiaRicerche(searchQuery);
+        }
+      }, 1200);
+
+      if (!isSyncActive) return;
+
+      clearTimeout(searchDebounceTimer);
+
+      searchDebounceTimer = setTimeout(async () => {
+        if (searchQuery === lastSearchSent) return;
+
+        lastSearchSent = searchQuery;
+
+        try {
+          await updateDoc(doc(db, "Clienti", idCliente), {
+            "settings.query": searchQuery
+          });
+        } catch (err) {
+          console.error("Errore update settings.query:", err);
+        }
+      }, 400);
+    });
 
   $("#wordSearch").off("change").on("change", async function () {
     const isWordSearch = $(this).prop("checked");
@@ -964,6 +1006,98 @@ function wireSearchUI() {
       console.error("Errore clearSearchBar:", error);
     }
   };
+
+  //Mostra finestra cronologia ultime 5 ricerche
+  $("#open-search-history").off("click").on("click", async function () {
+    try {
+      const clienteSnap = await getDoc(doc(db, "Clienti", idCliente));
+  
+      if (!clienteSnap.exists()) return;
+  
+      const settings = clienteSnap.data()?.settings || {};
+      const ultimeRicerche = Array.isArray(settings.ultimeRicerche)
+        ? settings.ultimeRicerche
+        : [];
+  
+      if (ultimeRicerche.length === 0) {
+        Swal.fire("Cronologia vuota", "Non ci sono ricerche recenti.", "info");
+        return;
+      }
+  
+      const html = `
+        <div class="list-group text-start">
+          ${ultimeRicerche.map(q => `
+            <button type="button"
+                    class="list-group-item list-group-item-action search-history-item"
+                    data-query="${q}">
+              <i class="bi bi-clock-history me-2"></i>${q}
+            </button>
+          `).join("")}
+        </div>
+      `;
+  
+      await Swal.fire({
+        title: "Ultime ricerche",
+        html,
+        showConfirmButton: false,
+        showCloseButton: true,
+        width: "400px",
+        didOpen: () => {
+          $(".search-history-item").off("click").on("click", function () {
+            const query = $(this).data("query");
+  
+            $("#search-bar").val(query).trigger("input");
+            Swal.close();
+          });
+        }
+      });
+  
+    } catch (error) {
+      console.error("Errore apertura cronologia ricerche:", error);
+      Swal.fire("Errore", "Impossibile caricare la cronologia.", "error");
+    }
+  });
+}
+
+// ========================
+// GESTIONE CRONOLOGIA
+// ========================
+async function salvaCronologiaRicerche(searchQuery) {
+  try {
+
+    const clienteRef = doc(db, "Clienti", idCliente);
+    const clienteSnap = await getDoc(clienteRef);
+
+    if (!clienteSnap.exists()) return;
+
+    const data = clienteSnap.data() || {};
+    const settings = data.settings || {};
+
+    let ultimeRicerche = Array.isArray(settings.ultimeRicerche)
+      ? settings.ultimeRicerche
+      : [];
+
+    // pulizia
+    searchQuery = String(searchQuery || "").trim().toLowerCase();
+
+    if (!searchQuery) return;
+
+    // rimuove eventuale duplicato
+    ultimeRicerche = ultimeRicerche.filter(q => q !== searchQuery);
+
+    // inserisce in cima
+    ultimeRicerche.unshift(searchQuery);
+
+    // massimo 5
+    ultimeRicerche = ultimeRicerche.slice(0, 5);
+
+    await updateDoc(clienteRef, {
+      "settings.ultimeRicerche": ultimeRicerche
+    });
+
+  } catch (error) {
+    console.error("Errore salvataggio cronologia:", error);
+  }
 }
 
 // ========================
