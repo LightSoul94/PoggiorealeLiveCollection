@@ -45,7 +45,7 @@
 </head>
 
 <body>
-    <div class="container mt-4">
+    <div class="container mt-0">
         <!-- Intestazione -->
         <div class="d-flex flex-row-reverse justify-content-between align-items-center col-12 mb-2">
 
@@ -62,7 +62,7 @@
                 <label class="form-check-label mb-0 me-5 pe-3" for="syncSwitch">
                     <i id="syncIcon" class="bi bi-cloud ms-2"></i>
                 </label>
-                <input type="checkbox" class="form-check-input custom-switch" id="syncSwitch" checked
+                <input type="checkbox" class="mb-2 form-check-input custom-switch" id="syncSwitch" checked
                     onclick="toggleSync()">
             </div>
 
@@ -97,7 +97,8 @@
         <!-- Raccolta -->
         <div id="raccolta">
             <div>
-                <div class="d-flex justify-content-between mb-3 align-items-center">
+                <div class="d-flex justify-content-between mb-3 align-items-center"
+                    style="margin-bottom: 0 !important;">
                     <!-- Gruppo sinistro -->
                     <div class="d-flex gap-2">
                         <!-- Tasto per aprire l'indice -->
@@ -105,14 +106,18 @@
                             <i class="fa fa-list"></i> Indice
                         </button>
 
+                        <button class="btn btn-outline-primary" type="button" id="open-search-history">
+                            <i class="bi bi-clock-history"></i>
+                        </button>
+
                         <button id="exportMenu" class="btn btn-outline-danger">
                             <i class="fa fa-file-export"></i>
                         </button>
                         <input type="file" id="importBackupFile" accept="application/json" hidden />
-
                     </div>
-
-                    <!-- Tasto nuovo brano (sempre a destra) -->
+                </div>
+                <!-- Tasto nuovo brano (sempre a destra) -->
+                <div>
                     <button onclick="window.location.href='addSong.html'" class="btn btn-primary admin">
                         <i class="fa-solid fa-plus"></i> Nuovo brano
                     </button>
@@ -121,14 +126,15 @@
 
             <!-- Barra di ricerca -->
             <div>
-                <div class="input-group mb-3" id="searchBarRaccolta">
-                    <button class="btn btn-outline-primary mb-0 me-0 pb-0 pt-0" type="button" id="open-search-history">
-                        Cronologia
-                    </button>
-                    <input type="text" id="search-bar" class="form-control"
+                <div class="search-wrapper mb-3" id="searchBarRaccolta">
+                    <i class="fa fa-search search-icon"></i>
+
+                    <input type="text" id="search-bar" class="form-control search-input"
                         placeholder="Cerca per numero, titolo o categoria...">
-                    <button class="btn btn-outline-secondary mb-0 pb-0 pt-0" type="button"
-                        onclick="clearSearchBar()">Cancella</button>
+
+                    <button class="btn btn-outline-secondary search-clear-btn" type="button" onclick="clearSearchBar()">
+                        Cancella
+                    </button>
                 </div>
                 <!-- Checkbox per attivare la ricerca per parole contenute -->
                 <input class="form-check-input" type="checkbox" value="" id="wordSearch"

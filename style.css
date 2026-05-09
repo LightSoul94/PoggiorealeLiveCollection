@@ -6,6 +6,10 @@ body {
     padding: 0;
 }
 
+.custom-switch {
+    transform: scale(1.5) !important;
+}
+
 /* Stile del contenitore principale */
 .container {
     max-width: 800px;
@@ -22,6 +26,60 @@ h1 {
     color: #333;
     text-align: center;
     margin-bottom: 20px;
+}
+
+/* Stile per la barra di ricerca */
+.search-wrapper {
+    position: relative;
+    display: flex;
+    align-items: center;
+    width: 100%;
+}
+
+.search-input {
+    height: 58px;
+    border-radius: 18px 0 0 18px;
+    padding-left: 50px;
+    font-size: 1.1rem;
+    border: 1px solid #d6d6d6;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+}
+
+.search-input:focus {
+    border-color: #0d6efd;
+    box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, .15);
+}
+
+.search-icon {
+    position: absolute;
+    left: 18px;
+    color: #888;
+    font-size: 1.2rem;
+    z-index: 10;
+}
+
+.search-clear-btn {
+    height: 58px;
+    border-radius: 0 18px 18px 0 !important;
+    margin-bottom: 0;
+    padding-left: 20px;
+    padding-right: 20px;
+    white-space: nowrap;
+}
+
+@media (max-width: 768px) {
+
+    .search-input {
+        font-size: 1rem;
+        padding-left: 45px;
+    }
+
+    .search-clear-btn {
+        font-size: 0.95rem;
+        padding-left: 14px;
+        padding-right: 14px;
+    }
+
 }
 
 /* Stile per l'editor di testo */
@@ -79,8 +137,10 @@ button {
 /* Assicurati che il PDF sia scrollabile */
 iframe {
     overflow: auto;
-    -webkit-overflow-scrolling: touch; /* Abilita lo scorrimento fluido su iOS */
-    height: 100vh; /* Altezza massima per l'iframe */
+    -webkit-overflow-scrolling: touch;
+    /* Abilita lo scorrimento fluido su iOS */
+    height: 100vh;
+    /* Altezza massima per l'iframe */
 }
 
 /* Pulsanti schermata pastore */
@@ -98,13 +158,13 @@ iframe {
 
 body {
     font-family: Arial, sans-serif;
-  }
-  
-  .form-check-label {
+}
+
+.form-check-label {
     font-size: 1.2rem;
-  }
-  
-  .custom-switch {
+}
+
+.custom-switch {
     /* Ingrandisce lo switch */
     transform: scale(1.5);
 }
@@ -112,16 +172,15 @@ body {
 /* Compattta SOLO i brani che contengono almeno uno span con font-size: 8pt (con o senza spazio) */
 div[id^="song-content-"]:has(:is(span[style*="font-size: 8pt"], span[style*="font-size:8pt"])) {
     line-height: 1.1;
-  }
-  
-  /* Azzera margini dei <p> solo dentro quei brani */
-  div[id^="song-content-"]:has(:is(span[style*="font-size: 8pt"], span[style*="font-size:8pt"])) p {
+}
+
+/* Azzera margini dei <p> solo dentro quei brani */
+div[id^="song-content-"]:has(:is(span[style*="font-size: 8pt"], span[style*="font-size:8pt"])) p {
     margin: 0;
     padding: 0;
-  }
-  
-  /* Collassa <br> consecutivi SOLO in quei brani (evita le “righe vuote” doppie) */
-  div[id^="song-content-"]:has(:is(span[style*="font-size: 8pt"], span[style*="font-size:8pt"])) br + br {
+}
+
+/* Collassa <br> consecutivi SOLO in quei brani (evita le “righe vuote” doppie) */
+div[id^="song-content-"]:has(:is(span[style*="font-size: 8pt"], span[style*="font-size:8pt"])) br+br {
     display: none;
-  }
-  
+}
