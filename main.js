@@ -1190,7 +1190,7 @@ function renderSongs(nomeRaccolta, songsArray) {
           ultimaModifica="${song.ultimaModifica}"
           raccolta="${nomeRaccolta}">
 
-        <div class="d-flex align-items-center mb-3 p-2 border rounded bg-light" id="song-tempo-${song.id}" style="color: red;">
+        <div class="d-flex align-items-center mb-3 p-2 border rounded bg-light" id="song-tempo-${song.id}" style="color: red;border-bottom-right-radius: 0 !important;border-bottom-left-radius: 0 !important;">
           <span class="me-4 fs-6 fw-bold color-red">
             <strong>Tempo: ${song.tempo ?? "-"} | BPM: ${song.bpm ?? "-"}</strong>
             <button class="btn btn-outline-primary ms-4 mt-2"
