@@ -37,10 +37,15 @@
     </script>
 
 
-    <!-- File manifest -->
-    <!-- <link rel="manifest" href="manifest.json">
+    <!-- PWA -->
+    <link rel="manifest" href="/manifest.json">
     <meta name="theme-color" content="#dc3545">
-    <link rel="apple-touch-icon" href="resources/icons/icon-192.png"> -->
+
+    <!-- iOS -->
+    <link rel="apple-touch-icon" href="/resources/icons/icon-192.png">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="Poggioreale">
 
 </head>
 
@@ -151,6 +156,8 @@
 
     <script src="https://code.jquery.com/jquery-3.5.1.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@10"></script>
+    
+    <script src="/js/pwa.js"></script>
 </body>
 
 </html>
