@@ -1,5 +1,6 @@
 // main.js
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-app.js";
+import { hasLocalSnapshot, saveFullSnapshot } from "/js/localDb.js";
 import {
   getFirestore,
   onSnapshot,
@@ -97,6 +98,10 @@ async function initializeFirebase() {
 
     const app = initializeApp(firebaseConfig);
     db = getFirestore(app);
+
+    // Assicurati che IndexedDB sia pronto
+    // al primo avvio scarica tutto, successivamente non fa nulla.
+    await ensureLocalDatabase();
 
     // eventi UI
     wireSearchUI();
@@ -197,6 +202,203 @@ async function initializeFirebase() {
     console.error("Errore initializeFirebase:", error);
     Swal.fire("Errore", String(error?.message || error), "error");
   }
+}
+
+// ========================
+// LOCAL DATABASE SNAPSHOT
+// ========================
+function serializeForLocalDb(value) {
+
+    if (value == null) {
+        return value;
+    }
+
+    // Firestore Timestamp
+    if (
+        typeof value === "object" &&
+        typeof value.toDate === "function"
+    ) {
+        return value.toDate().toISOString();
+    }
+
+    if (value instanceof Date) {
+        return value.toISOString();
+    }
+
+    if (Array.isArray(value)) {
+        return value.map(serializeForLocalDb);
+    }
+
+    if (typeof value === "object") {
+
+        const result = {};
+
+        Object.keys(value).forEach(key => {
+            result[key] =
+                serializeForLocalDb(value[key]);
+        });
+
+        return result;
+    }
+
+    return value;
+}
+
+async function downloadAllCollectionsToLocalDb() {
+
+    console.log(
+        "[IndexedDB] Download completo iniziato"
+    );
+
+    const clienteRef =
+        doc(db, "Clienti", idCliente);
+
+    const clienteSnap =
+        await getDoc(clienteRef);
+
+    if (!clienteSnap.exists()) {
+        throw new Error(
+            "Documento cliente non trovato."
+        );
+    }
+
+
+    const clienteData =
+        serializeForLocalDb(
+            clienteSnap.data()
+        );
+
+    const raccolte =
+        Array.isArray(clienteData.raccolte)
+            ? clienteData.raccolte
+            : [];
+
+
+    const snapshot = {};
+
+
+    // IMPORTANTE:
+    // prima scarichiamo TUTTO in memoria.
+    // IndexedDB non viene ancora modificato.
+
+    for (const nomeRaccolta of raccolte) {
+
+        console.log(
+            `[IndexedDB] Download "${nomeRaccolta}"`
+        );
+
+        const raccoltaRef =
+            collection(
+                db,
+                "Clienti",
+                idCliente,
+                nomeRaccolta
+            );
+
+        const querySnapshot =
+            await getDocs(raccoltaRef);
+
+        snapshot[nomeRaccolta] =
+            querySnapshot.docs.map(songDoc => ({
+                id: songDoc.id,
+                ...serializeForLocalDb(
+                    songDoc.data()
+                )
+            }));
+    }
+
+
+    // Arriviamo qui SOLO se tutte le raccolte
+    // sono state scaricate correttamente.
+
+    await saveFullSnapshot({
+        cliente: clienteData,
+        raccolte: snapshot
+    });
+
+
+    console.log(
+        "[IndexedDB] Snapshot completa salvata"
+    );
+}
+
+async function ensureLocalDatabase() {
+
+    try {
+
+        const hasSnapshot =
+            await hasLocalSnapshot();
+
+        if (hasSnapshot) {
+
+            console.log(
+                "[IndexedDB] Snapshot locale già presente"
+            );
+
+            return;
+        }
+
+
+        console.log(
+            "[IndexedDB] Nessun dato locale. Primo download."
+        );
+
+
+        Swal.fire({
+            title: "Preparazione raccolte",
+            html: `
+                Sto scaricando tutte le raccolte
+                per renderle disponibili offline.
+                <br><br>
+                Questa operazione viene eseguita
+                automaticamente solo la prima volta.
+            `,
+            allowOutsideClick: false,
+            allowEscapeKey: false,
+            showConfirmButton: false,
+            didOpen: () => {
+                Swal.showLoading();
+            }
+        });
+
+
+        await downloadAllCollectionsToLocalDb();
+
+
+        Swal.close();
+
+
+        await Swal.fire({
+            icon: "success",
+            title: "Raccolte disponibili offline",
+            text: "Il download iniziale è stato completato.",
+            timer: 1800,
+            showConfirmButton: false
+        });
+
+
+    } catch (error) {
+
+        console.error(
+            "[IndexedDB] Errore inizializzazione:",
+            error
+        );
+
+
+        Swal.close();
+
+
+        // NON cancelliamo niente
+        // e NON segnaliamo snapshot completata.
+
+        await Swal.fire({
+            icon: "warning",
+            title: "Download offline non completato",
+            text:
+                "Non è stato possibile salvare localmente tutte le raccolte. " +
+                "L'app continuerà a funzionare online."
+        });
+    }
 }
 
 // ========================
