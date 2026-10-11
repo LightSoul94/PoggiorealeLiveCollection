@@ -647,16 +647,31 @@ function renderRaccolteButtons(raccolte, selected) {
       $("#raccolte-btnGroup .btn").removeClass("active");
       $(this).addClass("active");
 
-      // aggiorna selezione su firestore se sync on
-      await aggiornaRaccoltaSelezionata(nomeRaccolta);
-
-      // carica brani subito in locale (anche se sync off)
+      // 1. cambio raccolta immediato usando IndexedDB
       currentSelectedRaccolta = nomeRaccolta;
+
       await loadCollectionSongs(nomeRaccolta);
 
-      // rifiltra in base alla query corrente
-      const q = String($("#search-bar").val() || "").toLowerCase().trim();
-      filterSongs(q, nomeRaccolta.toLowerCase());
+      // 2. rifiltra subito in locale
+      const q = String($("#search-bar").val() || "")
+        .toLowerCase()
+        .trim();
+
+      filterSongs(
+        q,
+        nomeRaccolta.toLowerCase()
+      );
+
+      // 3. sincronizza con Firebase senza bloccare la UI
+      if (navigator.onLine && isSyncActive) {
+        aggiornaRaccoltaSelezionata(nomeRaccolta)
+          .catch((error) => {
+            console.warn(
+              "Impossibile sincronizzare la raccolta selezionata:",
+              error
+            );
+          });
+      }
     });
 
     $group.append($btn);
