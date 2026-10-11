@@ -1,5 +1,5 @@
-const STATIC_CACHE = "poggioreale-static-v1";
-const RUNTIME_CACHE = "poggioreale-runtime-v1";
+const STATIC_CACHE = "poggioreale-static-v2";
+const RUNTIME_CACHE = "poggioreale-runtime-v2";
 
 const APP_SHELL = [
     "/",
@@ -14,6 +14,7 @@ const APP_SHELL = [
     "/js/addSong.js",
     "/js/downloadBackup.js",
     "/js/importBackup.js",
+    "/js/localDb.js",
     "/js/metronome.js",
     "/js/pwa.js",
     "/js/transposeUtils.js",

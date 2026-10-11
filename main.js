@@ -1,6 +1,13 @@
 // main.js
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-app.js";
-import { hasLocalSnapshot, saveFullSnapshot } from "/js/localDb.js";
+
+import {
+  hasLocalSnapshot,
+  saveFullSnapshot,
+  getLocalCollections,
+  getLocalSongsByCollection
+} from "/js/localDb.js";
+
 import {
   getFirestore,
   onSnapshot,
@@ -405,53 +412,82 @@ async function ensureLocalDatabase() {
 // BOOTSTRAP (carica stato iniziale)
 // ========================
 async function bootstrapFromClienteDoc() {
-  const clienteRef = doc(db, "Clienti", idCliente);
-  const snap = await getDoc(clienteRef);
+  try {
+    let settings = {};
+    let raccolte = [];
 
-  if (!snap.exists()) {
-    Swal.fire("Errore", "Il documento cliente non esiste.", "error");
-    return;
-  }
+    // 1. raccolte dal locale
+    raccolte = await getLocalCollections();
 
-  const data = snap.data() || {};
-  const settings = data.settings || {};
+    // 2. settings ancora da Firestore, se disponibile
+    try {
+      const clienteRef = doc(db, "Clienti", idCliente);
+      const snap = await getDoc(clienteRef);
 
-  // garantisci settings minimi (senza rompere nulla se mancano)
-  const patch = {};
-  if (!data.settings) patch["settings"] = {};
-  if (settings.query == null) patch["settings.query"] = "";
-  if (settings.flgWordSearch == null) patch["settings.flgWordSearch"] = false;
-  if (settings.raccoltaSelezionata == null) patch["settings.raccoltaSelezionata"] = (data.raccolte?.[0] ?? "-");
+      if (snap.exists()) {
+        const data = snap.data() || {};
+        settings = data.settings || {};
+      }
+    } catch (err) {
+      console.warn(
+        "[Bootstrap] Firestore non disponibile, uso impostazioni locali/default.",
+        err
+      );
+    }
 
-  if (Object.keys(patch).length) {
-    await updateDoc(clienteRef, patch).catch(() => { /* ignora */ });
-  }
+    currentSelectedRaccolta =
+      settings.raccoltaSelezionata &&
+      raccolte.includes(settings.raccoltaSelezionata)
+        ? settings.raccoltaSelezionata
+        : (raccolte[0] ?? "-");
 
-  // ricarica dopo eventuale patch
-  const snap2 = await getDoc(clienteRef);
-  const data2 = snap2.data() || {};
-  const settings2 = data2.settings || {};
+    currentSearchQuery =
+      String(settings.query || "").toLowerCase().trim();
 
-  currentSelectedRaccolta = settings2.raccoltaSelezionata || (data2.raccolte?.[0] ?? "-");
-  currentSearchQuery = String(settings2.query || "").toLowerCase().trim();
-  currentFlgWordSearch = !!settings2.flgWordSearch;
+    currentFlgWordSearch =
+      !!settings.flgWordSearch;
 
-  // UI: search + checkbox
-  isRemoteSearchUpdate = true;
-  $("#search-bar").val(currentSearchQuery);
-  $("#wordSearch").prop("checked", currentFlgWordSearch);
-  isRemoteSearchUpdate = false;
+    isRemoteSearchUpdate = true;
+    $("#search-bar").val(currentSearchQuery);
+    $("#wordSearch").prop("checked", currentFlgWordSearch);
+    isRemoteSearchUpdate = false;
 
-  // UI: raccolte
-  renderRaccolteButtons(data2.raccolte || [], currentSelectedRaccolta);
+    renderRaccolteButtons(
+      raccolte,
+      currentSelectedRaccolta
+    );
 
-  // carica brani raccolta selezionata
-  if (currentSelectedRaccolta && currentSelectedRaccolta !== "-") {
-    await loadCollectionSongs(currentSelectedRaccolta);
-    filterSongs(currentSearchQuery, currentSelectedRaccolta.toLowerCase());
+    if (
+      currentSelectedRaccolta &&
+      currentSelectedRaccolta !== "-"
+    ) {
+      await loadCollectionSongs(
+        currentSelectedRaccolta
+      );
+
+      filterSongs(
+        currentSearchQuery,
+        currentSelectedRaccolta.toLowerCase()
+      );
+    }
+
+  } catch (error) {
+    console.error(
+      "Errore bootstrap locale:",
+      error
+    );
+
+    Swal.fire(
+      "Errore",
+      "Impossibile caricare i dati locali.",
+      "error"
+    );
   }
 }
 
+// ========================
+// REALTIME: DOC CLIENTE (UNICO LISTENER)
+// ========================
 // ========================
 // REALTIME: DOC CLIENTE (UNICO LISTENER)
 // ========================
@@ -459,27 +495,36 @@ function startClienteRealtime() {
   const clienteRef = doc(db, "Clienti", idCliente);
 
   if (unsubscribeCliente) unsubscribeCliente();
+
   unsubscribeCliente = onSnapshot(clienteRef, async (snap) => {
     if (!snap.exists()) return;
 
     const data = snap.data() || {};
     const settings = data.settings || {};
 
-    const newRaccolte = data.raccolte || [];
-    const newSelected = settings.raccoltaSelezionata || (newRaccolte[0] ?? "-");
-    const newQuery = String(settings.query || "").toLowerCase().trim();
-    const newWord = !!settings.flgWordSearch;
+    const localRaccolte = await getLocalCollections();
 
-    // 1) aggiorna bottoni raccolte sempre se cambia lista o selezione
-    renderRaccolteButtons(newRaccolte, newSelected);
+    const newSelected =
+      settings.raccoltaSelezionata &&
+      localRaccolte.includes(settings.raccoltaSelezionata)
+        ? settings.raccoltaSelezionata
+        : (localRaccolte[0] ?? "-");
+
+    const newQuery =
+      String(settings.query || "")
+        .toLowerCase()
+        .trim();
+
+    const newWord =
+      !!settings.flgWordSearch;
+
+    // I bottoni vengono SEMPRE costruiti dalla snapshot locale
+    renderRaccolteButtons(
+      localRaccolte,
+      newSelected
+    );
 
     // 2) aggiorna search + checkbox (senza triggerare scrittura)
-    // if (newQuery !== currentSearchQuery) {
-    //   currentSearchQuery = newQuery;
-    //   isRemoteSearchUpdate = true;
-    //   $("#search-bar").val(newQuery);
-    //   isRemoteSearchUpdate = false;
-    // }
 
     if (newQuery !== currentSearchQuery) {
       currentSearchQuery = newQuery;
@@ -490,7 +535,6 @@ function startClienteRealtime() {
 
         const input = $("#search-bar");
 
-        // aggiorna solo se realmente diverso
         if (input.val() !== newQuery) {
           input.val(newQuery);
         }
@@ -504,22 +548,34 @@ function startClienteRealtime() {
       $("#wordSearch").prop("checked", newWord);
     }
 
-    // 3) se cambia raccolta selezionata, ricarica i brani (questo è il punto chiave)
+    // 3) se cambia raccolta selezionata
     if (newSelected !== currentSelectedRaccolta) {
       currentSelectedRaccolta = newSelected;
+
       if (newSelected && newSelected !== "-") {
         await loadCollectionSongs(newSelected);
       }
     }
 
-    // 4) applica filtro sempre (ma usando raccolta selezionata)
-    if (currentSelectedRaccolta && currentSelectedRaccolta !== "-") {
-      filterSongs(currentSearchQuery, currentSelectedRaccolta.toLowerCase());
+    // 4) applica filtro
+    if (
+      currentSelectedRaccolta &&
+      currentSelectedRaccolta !== "-"
+    ) {
+      filterSongs(
+        currentSearchQuery,
+        currentSelectedRaccolta.toLowerCase()
+      );
     }
 
   }, (err) => {
-    console.error("onSnapshot clienteRef error:", err);
-    Swal.fire("Errore", "Realtime cliente fallito: " + err.message, "error");
+
+    // Offline è una condizione normale
+    console.warn(
+      "Realtime cliente non disponibile:",
+      err
+    );
+
   });
 }
 
@@ -1308,61 +1364,47 @@ async function salvaCronologiaRicerche(searchQuery) {
 async function loadCollectionSongs(nomeRaccolta) {
   if (!nomeRaccolta || nomeRaccolta === "-") return;
 
-  // kill vecchi listener per-brano
   cleanupSongListeners();
 
-  const raccoltaRef = collection(db, "Clienti", idCliente, nomeRaccolta);
-  const querySnapshot = await getDocs(raccoltaRef);
+  const localSongs =
+    await getLocalSongsByCollection(
+      nomeRaccolta
+    );
 
-  const songsArray = querySnapshot.docs.map((d) => {
-    const data = d.data() || {};
-    return {
-      id: d.id,
-      tempo: data.tempo,
-      bpm: data.bpm,
-      numero: data.numero,
-      titolo: data.titolo,
-      categorie: data.categorie,
-      html: data.html,
-      transposeValue: Number(data.transVal) || 0,
-      dataInserimento: data.dataInserimento ? formatDate(data.dataInserimento.toDate()) : "-",
-      ultimaModifica: data.ultimaModifica ? formatDate(data.ultimaModifica.toDate()) : "-"
-    };
-  });
+  const songsArray = localSongs.map(data => ({
+    id: data.id,
+    tempo: data.tempo,
+    bpm: data.bpm,
+    numero: data.numero,
+    titolo: data.titolo,
+    categorie: data.categorie,
+    html: data.html,
+    transposeValue:
+      Number(data.transVal ?? data.transposeValue) || 0,
 
-  if (songsArray.length) songsArray.sort((a, b) => (a.numero ?? 999999) - (b.numero ?? 999999));
+    dataInserimento:
+      data.dataInserimento
+        ? formatLocalDate(data.dataInserimento)
+        : "-",
 
-  renderSongs(nomeRaccolta, songsArray);
+    ultimaModifica:
+      data.ultimaModifica
+        ? formatLocalDate(data.ultimaModifica)
+        : "-"
+  }));
 
-  // realtime per-brano SOLO se sync on (come volevi)
-  if (isSyncActive) {
-    querySnapshot.forEach((songDoc) => {
-      const songId = songDoc.id;
-      const songRef = doc(raccoltaRef, songId);
-
-      const unsub = onSnapshot(songRef, (snap) => {
-        if (!snap.exists()) {
-          $(`#${songId}`).remove();
-          songUnsubMap.delete(songId);
-          return;
-        }
-
-        const updatedData = snap.data() || {};
-        const songHTML = updatedData.html ?? "";
-
-        $(`#song-content-${songId}`).html(songHTML);
-
-        const lastEditDate = updatedData.ultimaModifica
-          ? updatedData.ultimaModifica.toDate().toLocaleString("it-IT", { dateStyle: "short", timeStyle: "short" })
-          : "-";
-
-        $(`#lastEditLabel-${songId}`).text(`Ultima modifica: ${lastEditDate}`);
-        $(`#transpose-value-${songId}`).text(updatedData.transVal || 0);
-      });
-
-      songUnsubMap.set(songId, unsub);
-    });
+  if (songsArray.length) {
+    songsArray.sort(
+      (a, b) =>
+        (a.numero ?? 999999) -
+        (b.numero ?? 999999)
+    );
   }
+
+  renderSongs(
+    nomeRaccolta,
+    songsArray
+  );
 
   applyAdminVisibility();
 }
@@ -1915,19 +1957,23 @@ window.cancelEdit = function (songId) {
 // LOAD ALL COLLECTIONS (per select edit)
 // ========================
 async function loadAllCollections() {
-  const clienteRef = doc(db, "Clienti", idCliente);
-  const snap = await getDoc(clienteRef);
 
-  const raccolte = (snap.exists() ? snap.data().raccolte : []) || [];
+  const raccolte = await getLocalCollections();
+
   const $select = $("#song-collection");
-  $select.find("option:not([value='']):not([value='new'])").remove();
+
+  $select
+    .find("option:not([value='']):not([value='new'])")
+    .remove();
 
   raccolte.forEach((r) => {
     $select.append(new Option(r, r));
   });
 
   $select.off("change").on("change", function () {
+
     if ($(this).val() === "new") {
+
       Swal.fire({
         title: "Aggiungi nuova raccolta",
         input: "text",
@@ -1936,17 +1982,32 @@ async function loadAllCollections() {
         showCancelButton: true,
         confirmButtonText: "Aggiungi",
         cancelButtonText: "Annulla",
-        inputValidator: (value) => !value ? "Devi inserire un nome per la raccolta!" : null
+        inputValidator: (value) =>
+          !value
+            ? "Devi inserire un nome per la raccolta!"
+            : null
       }).then((result) => {
+
         if (result.isConfirmed) {
+
           const nuova = result.value.trim();
-          $select.append(new Option(nuova, nuova));
+
+          $select.append(
+            new Option(nuova, nuova)
+          );
+
           $select.val(nuova);
+
         } else {
+
           $select.val("");
+
         }
+
       });
+
     }
+
   });
 }
 
@@ -2212,79 +2273,129 @@ async function generatePDF() {
 }
 
 // ========================
-// INDICE UI (la tua logica, con dedupe)
+// INDICE UI (logica con dedupe)
 // ========================
 function wireIndexUI() {
   $("#open-index").off("click").on("click", async function () {
     try {
-      const clienteRef = doc(db, "Clienti", idCliente);
-      const clienteSnap = await getDoc(clienteRef);
 
-      if (!clienteSnap.exists()) {
-        Swal.fire({ icon: "error", title: "Oops...", text: "Il documento cliente non esiste." });
-        return;
-      }
-
-      const clienteData = clienteSnap.data();
-      const raccoltaSelezionata = clienteData.settings?.raccoltaSelezionata;
+      const raccoltaSelezionata = currentSelectedRaccolta;
 
       if (!raccoltaSelezionata || raccoltaSelezionata === "-") {
-        Swal.fire({ icon: "error", title: "Oops...", text: "Nessuna raccolta selezionata." });
+        Swal.fire({
+          icon: "error",
+          title: "Oops...",
+          text: "Nessuna raccolta selezionata."
+        });
         return;
       }
 
-      const raccoltaRef = collection(db, "Clienti", idCliente, raccoltaSelezionata);
-      const querySnapshot = await getDocs(raccoltaRef);
+      const songs = await getLocalSongsByCollection(raccoltaSelezionata);
 
-      if (querySnapshot.empty) {
-        Swal.fire({ icon: "error", title: "Oops...", text: "La raccolta selezionata non contiene brani." });
+      if (!songs.length) {
+        Swal.fire({
+          icon: "error",
+          title: "Oops...",
+          text: "La raccolta selezionata non contiene brani."
+        });
         return;
       }
 
       let indice = {};
-      querySnapshot.forEach((d) => {
-        const canzone = d.data() || {};
+
+      songs.forEach((canzone) => {
         const categorieCanzone = canzone.categorie || ["Generica"];
         const titolo = canzone.titolo || "Senza Titolo";
         const numero = canzone.numero ? `${canzone.numero}. ` : "";
 
         categorieCanzone.forEach((categoria) => {
-          if (!indice[categoria]) indice[categoria] = [];
-          indice[categoria].push({ titolo, numero });
+          if (!indice[categoria]) {
+            indice[categoria] = [];
+          }
+
+          indice[categoria].push({
+            titolo,
+            numero
+          });
         });
       });
 
       Object.keys(indice).forEach((categoria) => {
-        indice[categoria].sort((a, b) => a.titolo.localeCompare(b.titolo));
+        indice[categoria].sort((a, b) =>
+          a.titolo.localeCompare(b.titolo)
+        );
       });
 
       const creaIndiceHTML = (idx) => {
         let html = `<div class="text-start">`;
+
         Object.keys(idx).forEach((categoria) => {
           html += `
             <div class="categoria-item">
-              <button class="btn btn-link toggle-categoria" data-categoria="${categoria}" style="text-decoration:none;">
+              <button
+                class="btn btn-link toggle-categoria"
+                data-categoria="${categoria}"
+                style="text-decoration:none;">
                 <strong>${categoria}</strong>
               </button>
-              <ul id="categoria-list-${categoria}" style="display:none;">`;
+
+              <ul
+                id="categoria-list-${categoria}"
+                style="display:none;">
+          `;
 
           idx[categoria].forEach((c) => {
-            html += `<li><a href="#" class="indice-titolo" data-titolo="${c.titolo}" data-numero="${c.numero}">${c.numero}${c.titolo}</a></li>`;
+            html += `
+              <li>
+                <a
+                  href="#"
+                  class="indice-titolo"
+                  data-titolo="${c.titolo}"
+                  data-numero="${c.numero}">
+                  ${c.numero}${c.titolo}
+                </a>
+              </li>
+            `;
           });
 
-          html += `</ul></div>`;
+          html += `
+              </ul>
+            </div>
+          `;
         });
+
         html += `</div>`;
+
         return html;
       };
 
-      let indiceHTML = `
+      const indiceHTML = `
         <div class="btn-group mb-3" role="group">
-          <button type="button" class="btn btn-outline-primary m-0 active" id="btn-per-categorie">Per categorie</button>
-          <button type="button" class="btn btn-outline-primary m-0" id="btn-ordine-numerico">Ordine Numerico</button>
-          <button type="button" class="btn btn-outline-primary m-0" id="btn-ordine-alfabetico">Ordine Alfabetico</button>
+          <button
+            type="button"
+            class="btn btn-outline-primary m-0 active"
+            id="btn-per-categorie">
+            Per categorie
+          </button>
+
+          <button
+            type="button"
+            class="btn btn-outline-primary m-0"
+            id="btn-ordine-numerico">
+            Ordine Numerico
+          </button>
+
+          <button
+            type="button"
+            class="btn btn-outline-primary m-0"
+            id="btn-ordine-alfabetico">
+            Ordine Alfabetico
+          </button>
         </div>
-        <div id="indice-contenuto">${creaIndiceHTML(indice)}</div>
+
+        <div id="indice-contenuto">
+          ${creaIndiceHTML(indice)}
+        </div>
       `;
 
       Swal.fire({
@@ -2295,91 +2406,243 @@ function wireIndexUI() {
         showCloseButton: true
       });
 
-      $(document).off("click", ".toggle-categoria").on("click", ".toggle-categoria", function () {
-        const categoria = $(this).data("categoria");
-        $(`#categoria-list-${categoria}`).slideToggle();
-      });
+      $(document)
+        .off("click", ".toggle-categoria")
+        .on("click", ".toggle-categoria", function () {
+          const categoria = $(this).data("categoria");
 
-      $(document).off("click", ".indice-titolo").on("click", ".indice-titolo", function (e) {
-        e.preventDefault();
-        const titoloSelezionato = `${$(this).data("numero")}${$(this).data("titolo")}`;
-        $("#search-bar").val(titoloSelezionato).trigger("input");
-        Swal.close();
-      });
+          $(`#categoria-list-${categoria}`).slideToggle();
+        });
 
-      $(document).off("click", ".btn-group .btn").on("click", ".btn-group .btn", function () {
-        $("#btn-per-categorie, #btn-ordine-numerico, #btn-ordine-alfabetico").removeClass("active");
-        $(this).addClass("active");
+      $(document)
+        .off("click", ".indice-titolo")
+        .on("click", ".indice-titolo", function (e) {
+          e.preventDefault();
 
-        const id = $(this).attr("id");
-        $("#sort-toggle").remove();
-        $("#sort-alpha-toggle").remove();
+          const titoloSelezionato =
+            `${$(this).data("numero")}${$(this).data("titolo")}`;
 
-        if (id === "btn-per-categorie") {
-          $("#indice-contenuto").html(creaIndiceHTML(indice));
-          return;
-        }
+          $("#search-bar")
+            .val(titoloSelezionato)
+            .trigger("input");
 
-        if (id === "btn-ordine-numerico") {
-          const list = buildUniqueListFromIndex(indice);
-          list.sort((a, b) => (parseInt(a.numero) || 999999) - (parseInt(b.numero) || 999999));
+          Swal.close();
+        });
 
-          const render = () => {
-            let h = '<div class="text-start"><ul>';
-            list.forEach((c) => {
-              h += `<li><a href="#" class="indice-titolo" data-titolo="${c.titolo}" data-numero="${c.numero}">${c.numero}${c.titolo}</a></li>`;
-            });
-            h += "</ul></div>";
-            $("#indice-contenuto").html(h);
-          };
+      $(document)
+        .off("click", ".btn-group .btn")
+        .on("click", ".btn-group .btn", function () {
 
-          $("#indice-contenuto").before('<div><button id="sort-toggle" class="btn btn-secondary mb-2">Ordina Crescente <i class="fas fa-sort-numeric-down"></i></button></div>');
-          $("#sort-toggle").off("click").on("click", function () {
-            const isAsc = $(this).find("i").hasClass("fa-sort-numeric-down");
-            list.sort((a, b) => isAsc
-              ? (parseInt(b.numero) || 999999) - (parseInt(a.numero) || 999999)
-              : (parseInt(a.numero) || 999999) - (parseInt(b.numero) || 999999)
+          $("#btn-per-categorie, #btn-ordine-numerico, #btn-ordine-alfabetico")
+            .removeClass("active");
+
+          $(this).addClass("active");
+
+          const id = $(this).attr("id");
+
+          $("#sort-toggle").remove();
+          $("#sort-alpha-toggle").remove();
+
+
+          // =========================
+          // PER CATEGORIE
+          // =========================
+          if (id === "btn-per-categorie") {
+            $("#indice-contenuto").html(
+              creaIndiceHTML(indice)
             );
-            $(this).html(isAsc ? 'Ordina Decrescente <i class="fas fa-sort-numeric-up"></i>' : 'Ordina Crescente <i class="fas fa-sort-numeric-down"></i>');
-            render();
-          });
 
-          render();
-          return;
-        }
+            return;
+          }
 
-        if (id === "btn-ordine-alfabetico") {
-          const list = buildUniqueListFromIndex(indice);
-          list.sort((a, b) => a.titolo.toLowerCase().localeCompare(b.titolo.toLowerCase()));
 
-          const render = () => {
-            let h = '<div class="text-start"><ul>';
-            list.forEach((c) => {
-              h += `<li><a href="#" class="indice-titolo" data-titolo="${c.titolo}" data-numero="${c.numero}">${c.numero}${c.titolo}</a></li>`;
-            });
-            h += "</ul></div>";
-            $("#indice-contenuto").html(h);
-          };
+          // =========================
+          // ORDINE NUMERICO
+          // =========================
+          if (id === "btn-ordine-numerico") {
 
-          $("#indice-contenuto").before('<div><button id="sort-alpha-toggle" class="btn btn-secondary mb-2">Ordina Crescente <i class="fas fa-sort-alpha-down"></i></button></div>');
-          $("#sort-alpha-toggle").off("click").on("click", function () {
-            const isAsc = $(this).find("i").hasClass("fa-sort-alpha-down");
-            list.sort((a, b) => isAsc
-              ? b.titolo.toLowerCase().localeCompare(a.titolo.toLowerCase())
-              : a.titolo.toLowerCase().localeCompare(b.titolo.toLowerCase())
+            const list = buildUniqueListFromIndex(indice);
+
+            list.sort((a, b) =>
+              (parseInt(a.numero) || 999999) -
+              (parseInt(b.numero) || 999999)
             );
-            $(this).html(isAsc ? 'Ordina Decrescente <i class="fas fa-sort-alpha-up"></i>' : 'Ordina Crescente <i class="fas fa-sort-alpha-down"></i>');
-            render();
-          });
 
-          render();
-          return;
-        }
-      });
+            const render = () => {
+              let h = `
+                <div class="text-start">
+                  <ul>
+              `;
+
+              list.forEach((c) => {
+                h += `
+                  <li>
+                    <a
+                      href="#"
+                      class="indice-titolo"
+                      data-titolo="${c.titolo}"
+                      data-numero="${c.numero}">
+                      ${c.numero}${c.titolo}
+                    </a>
+                  </li>
+                `;
+              });
+
+              h += `
+                  </ul>
+                </div>
+              `;
+
+              $("#indice-contenuto").html(h);
+            };
+
+            $("#indice-contenuto").before(`
+              <div>
+                <button
+                  id="sort-toggle"
+                  class="btn btn-secondary mb-2">
+                  Ordina Crescente
+                  <i class="fas fa-sort-numeric-down"></i>
+                </button>
+              </div>
+            `);
+
+            $("#sort-toggle")
+              .off("click")
+              .on("click", function () {
+
+                const isAsc = $(this)
+                  .find("i")
+                  .hasClass("fa-sort-numeric-down");
+
+                list.sort((a, b) =>
+                  isAsc
+                    ? (parseInt(b.numero) || 999999) -
+                      (parseInt(a.numero) || 999999)
+                    : (parseInt(a.numero) || 999999) -
+                      (parseInt(b.numero) || 999999)
+                );
+
+                $(this).html(
+                  isAsc
+                    ? 'Ordina Decrescente <i class="fas fa-sort-numeric-up"></i>'
+                    : 'Ordina Crescente <i class="fas fa-sort-numeric-down"></i>'
+                );
+
+                render();
+              });
+
+            render();
+
+            return;
+          }
+
+
+          // =========================
+          // ORDINE ALFABETICO
+          // =========================
+          if (id === "btn-ordine-alfabetico") {
+
+            const list = buildUniqueListFromIndex(indice);
+
+            list.sort((a, b) =>
+              a.titolo
+                .toLowerCase()
+                .localeCompare(
+                  b.titolo.toLowerCase()
+                )
+            );
+
+            const render = () => {
+              let h = `
+                <div class="text-start">
+                  <ul>
+              `;
+
+              list.forEach((c) => {
+                h += `
+                  <li>
+                    <a
+                      href="#"
+                      class="indice-titolo"
+                      data-titolo="${c.titolo}"
+                      data-numero="${c.numero}">
+                      ${c.numero}${c.titolo}
+                    </a>
+                  </li>
+                `;
+              });
+
+              h += `
+                  </ul>
+                </div>
+              `;
+
+              $("#indice-contenuto").html(h);
+            };
+
+            $("#indice-contenuto").before(`
+              <div>
+                <button
+                  id="sort-alpha-toggle"
+                  class="btn btn-secondary mb-2">
+                  Ordina Crescente
+                  <i class="fas fa-sort-alpha-down"></i>
+                </button>
+              </div>
+            `);
+
+            $("#sort-alpha-toggle")
+              .off("click")
+              .on("click", function () {
+
+                const isAsc = $(this)
+                  .find("i")
+                  .hasClass("fa-sort-alpha-down");
+
+                list.sort((a, b) =>
+                  isAsc
+                    ? b.titolo
+                        .toLowerCase()
+                        .localeCompare(
+                          a.titolo.toLowerCase()
+                        )
+                    : a.titolo
+                        .toLowerCase()
+                        .localeCompare(
+                          b.titolo.toLowerCase()
+                        )
+                );
+
+                $(this).html(
+                  isAsc
+                    ? 'Ordina Decrescente <i class="fas fa-sort-alpha-up"></i>'
+                    : 'Ordina Crescente <i class="fas fa-sort-alpha-down"></i>'
+                );
+
+                render();
+              });
+
+            render();
+
+            return;
+          }
+
+        });
 
     } catch (error) {
-      console.error("Errore indice:", error);
-      Swal.fire("Errore!", "Non è stato possibile caricare l'indice: " + error.message, "error");
+
+      console.error(
+        "Errore indice locale:",
+        error
+      );
+
+      Swal.fire(
+        "Errore!",
+        "Non è stato possibile caricare l'indice: " +
+          error.message,
+        "error"
+      );
     }
   });
 }
@@ -2483,6 +2746,27 @@ function formatDate(date) {
   if (!date) return "-";
   const options = { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" };
   return date.toLocaleDateString("it-IT", options);
+}
+
+function formatLocalDate(value) {
+  if (!value) return "-";
+
+  const date =
+    value instanceof Date
+      ? value
+      : new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "-";
+  }
+
+  return date.toLocaleString(
+    "it-IT",
+    {
+      dateStyle: "short",
+      timeStyle: "short"
+    }
+  );
 }
 
 // ========================
