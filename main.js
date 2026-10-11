@@ -198,6 +198,9 @@ async function initializeFirebase() {
     // indice
     wireIndexUI();
 
+    // ricarica raccolte offline
+    wireLocalRefreshUI();
+
     // auth admin
     wireAdminAuth();
 
@@ -406,6 +409,48 @@ async function ensureLocalDatabase() {
                 "L'app continuerà a funzionare online."
         });
     }
+}
+
+// ========================
+// REFRESH UI FROM LOCAL DATABASE
+// ========================
+async function refreshUIFromLocalDatabase() {
+
+  const raccolte = await getLocalCollections();
+
+  if (!raccolte.length) {
+    currentSelectedRaccolta = "-";
+    $("#songs-list").empty();
+    return;
+  }
+
+  // Manteniamo la raccolta corrente se esiste ancora.
+  // Altrimenti prendiamo la prima disponibile.
+  if (
+    !currentSelectedRaccolta ||
+    !raccolte.includes(currentSelectedRaccolta)
+  ) {
+    currentSelectedRaccolta = raccolte[0];
+  }
+
+  renderRaccolteButtons(
+    raccolte,
+    currentSelectedRaccolta
+  );
+
+  await loadCollectionSongs(
+    currentSelectedRaccolta
+  );
+
+  const q =
+    String($("#search-bar").val() || "")
+      .toLowerCase()
+      .trim();
+
+  filterSongs(
+    q,
+    currentSelectedRaccolta.toLowerCase()
+  );
 }
 
 // ========================
@@ -2737,6 +2782,116 @@ function buildUniqueListFromIndex(indice) {
   });
 
   return list;
+}
+
+// ========================
+// LOCAL REFRESH UI
+// ========================
+function wireLocalRefreshUI() {
+
+  $("#refresh-local-data")
+    .off("click")
+    .on("click", async function () {
+
+      if (!navigator.onLine) {
+
+        await Swal.fire({
+          icon: "warning",
+          title: "Connessione assente",
+          text:
+            "Per aggiornare le raccolte è necessaria una connessione Internet."
+        });
+
+        return;
+      }
+
+
+      const result = await Swal.fire({
+        icon: "question",
+        title: "Aggiorna raccolte",
+        html: `
+          Verranno scaricate nuovamente
+          <strong>tutte le raccolte</strong>
+          dal server.
+          <br><br>
+          I dati locali attuali verranno sostituiti
+          solo dopo che il download sarà terminato
+          correttamente.
+        `,
+        showCancelButton: true,
+        confirmButtonText: "Aggiorna",
+        cancelButtonText: "Annulla"
+      });
+
+
+      if (!result.isConfirmed) {
+        return;
+      }
+
+
+      try {
+
+        Swal.fire({
+          title: "Aggiornamento raccolte",
+          html: `
+            Download di tutte le raccolte in corso...
+            <br><br>
+            Non chiudere l'applicazione.
+          `,
+          allowOutsideClick: false,
+          allowEscapeKey: false,
+          showConfirmButton: false,
+          didOpen: () => {
+            Swal.showLoading();
+          }
+        });
+
+
+        // Scarica TUTTO da Firestore.
+        // La vecchia snapshot rimane intatta
+        // finché il download non è completo.
+        await downloadAllCollectionsToLocalDb();
+
+
+        // Ora IndexedDB contiene la nuova snapshot.
+        // Ricarichiamo l'interfaccia dal locale.
+        await refreshUIFromLocalDatabase();
+
+
+        Swal.close();
+
+
+        await Swal.fire({
+          icon: "success",
+          title: "Raccolte aggiornate",
+          text:
+            "Tutte le raccolte sono state aggiornate e sono disponibili offline.",
+          timer: 2000,
+          showConfirmButton: false
+        });
+
+
+      } catch (error) {
+
+        console.error(
+          "[IndexedDB] Aggiornamento manuale fallito:",
+          error
+        );
+
+
+        Swal.close();
+
+
+        await Swal.fire({
+          icon: "error",
+          title: "Aggiornamento non riuscito",
+          text:
+            "Non è stato possibile scaricare tutte le raccolte. " +
+            "La copia locale precedente è stata mantenuta."
+        });
+      }
+
+    });
 }
 
 // ========================

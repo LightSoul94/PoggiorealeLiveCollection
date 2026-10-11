@@ -1,5 +1,5 @@
-const STATIC_CACHE = "poggioreale-static-v2";
-const RUNTIME_CACHE = "poggioreale-runtime-v2";
+const STATIC_CACHE = "poggioreale-static-v3";
+const RUNTIME_CACHE = "poggioreale-runtime-v3";
 
 const APP_SHELL = [
     "/",
