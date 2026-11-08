@@ -1,201 +1,107 @@
-const STATIC_CACHE = "poggioreale-static-v3";
-const RUNTIME_CACHE = "poggioreale-runtime-v3";
+// Poggioreale: l'applicazione deve aprirsi dalla cache anche con Wi-Fi senza Internet.
+const STATIC_CACHE = "poggioreale-static-v4";
+const RUNTIME_CACHE = "poggioreale-runtime-v4";
 
+// Risorse essenziali: non includere favicon o file opzionali che possano invalidare l'installazione.
 const APP_SHELL = [
-    "/",
-    "/index.html",
-    "/addSong.html",
-    "/style.css",
-    "/main.js",
-    "/config.json",
-    "/manifest.json",
-    "/favicon.ico",
-
-    "/js/addSong.js",
-    "/js/downloadBackup.js",
-    "/js/importBackup.js",
-    "/js/localDb.js",
-    "/js/metronome.js",
-    "/js/pwa.js",
-    "/js/transposeUtils.js",
-
-    "/resources/icons/icon-192.png",
-    "/resources/icons/icon-512.png"
+  "/", "/index.html", "/addSong.html", "/style.css", "/main.js",
+  "/config.json", "/manifest.json", "/js/addSong.js",
+  "/js/downloadBackup.js", "/js/importBackup.js", "/js/localDb.js",
+  "/js/metronome.js", "/js/pwa.js", "/js/transposeUtils.js"
 ];
-
-const STATIC_EXTERNAL_HOSTS = [
-    "cdn.jsdelivr.net",
-    "cdnjs.cloudflare.com",
-    "ajax.googleapis.com",
-    "code.jquery.com",
-    "www.gstatic.com"
+const OPTIONAL_ASSETS = [
+  "/favicon.ico", "/resources/icons/icon-192.png", "/resources/icons/icon-512.png",
+  "https://ajax.googleapis.com/ajax/libs/jquery/3.6.0/jquery.min.js",
+  "https://code.jquery.com/jquery-3.5.1.js",
+  "https://code.jquery.com/jquery-3.5.1.min.js",
+  "https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css",
+  "https://cdn.jsdelivr.net/npm/bootstrap-icons/font/bootstrap-icons.css",
+  "https://cdn.jsdelivr.net/npm/@yaireo/tagify/dist/tagify.css",
+  "https://cdn.jsdelivr.net/npm/@yaireo/tagify/dist/tagify.min.js",
+  "https://cdn.jsdelivr.net/npm/sweetalert2@10",
+  "https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css",
+  "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js",
+  "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js",
+  "https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css",
+  "https://www.gstatic.com/firebasejs/10.13.1/firebase-app.js",
+  "https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore.js"
 ];
+const STATIC_EXTERNAL_HOSTS = new Set([
+  "cdn.jsdelivr.net", "cdnjs.cloudflare.com", "ajax.googleapis.com",
+  "code.jquery.com", "www.gstatic.com", "stackpath.bootstrapcdn.com"
+]);
 
-
-// =========================
-// INSTALL
-// =========================
 self.addEventListener("install", event => {
-
-    console.log("[Service Worker] Installazione");
-
-    event.waitUntil(
-        caches
-            .open(STATIC_CACHE)
-            .then(cache => {
-                console.log("[Service Worker] Cache applicazione");
-                return cache.addAll(APP_SHELL);
-            })
-    );
-
-    self.skipWaiting();
+  event.waitUntil((async () => {
+    const cache = await caches.open(STATIC_CACHE);
+    // In caso di errore su un asset essenziale, non sostituire il precedente SW funzionante.
+    await cache.addAll(APP_SHELL);
+    // Il vecchio runtime può contenere librerie CDN necessarie all'avvio offline.
+    const previousRuntime = await caches.open("poggioreale-runtime-v3");
+    const oldKeys = await previousRuntime.keys();
+    await Promise.allSettled(oldKeys.map(async key => {
+      const response = await previousRuntime.match(key);
+      if (response && !(await cache.match(key))) await cache.put(key, response);
+    }));
+    await Promise.allSettled(OPTIONAL_ASSETS.map(path => cache.add(path)));
+    await self.skipWaiting();
+  })());
 });
 
-
-// =========================
-// ACTIVATE
-// =========================
 self.addEventListener("activate", event => {
-
-    console.log("[Service Worker] Attivazione");
-
-    event.waitUntil(
-        caches.keys().then(cacheNames => {
-
-            return Promise.all(
-                cacheNames
-                    .filter(cacheName =>
-                        cacheName !== STATIC_CACHE &&
-                        cacheName !== RUNTIME_CACHE
-                    )
-                    .map(cacheName => {
-                        console.log(
-                            "[Service Worker] Elimino vecchia cache:",
-                            cacheName
-                        );
-
-                        return caches.delete(cacheName);
-                    })
-            );
-        })
-    );
-
-    self.clients.claim();
+  event.waitUntil((async () => {
+    await self.clients.claim();
+    const all = await caches.keys();
+    await Promise.all(all.filter(name => name.startsWith("poggioreale-") &&
+      name !== STATIC_CACHE && name !== RUNTIME_CACHE).map(name => caches.delete(name)));
+  })());
 });
 
+async function cacheFirst(request, fallback) {
+  const cached = await caches.match(request);
+  if (cached) return cached;
+  try {
+    const response = await fetch(request);
+    if (response.ok || response.type === "opaque") {
+      const copy = response.clone();
+      // Non bloccare la risposta per attendere il salvataggio della cache.
+      caches.open(RUNTIME_CACHE).then(cache => cache.put(request, copy)).catch(console.warn);
+    }
+    return response;
+  } catch (error) {
+    if (fallback) {
+      const page = await caches.match(fallback);
+      if (page) return page;
+    }
+    throw error;
+  }
+}
 
-// =========================
-// FETCH
-// =========================
 self.addEventListener("fetch", event => {
+  const request = event.request;
+  if (request.method !== "GET") return;
+  const url = new URL(request.url);
 
-    const request = event.request;
+  // Solo per la verifica Internet: niente cache, niente risposta artificiale del SW.
+  if (url.origin === self.location.origin && url.searchParams.has("connectivity-probe")) {
+    event.respondWith(fetch(request));
+    return;
+  }
 
-    if (request.method !== "GET") {
-        return;
-    }
+  if (request.mode === "navigate") {
+    // Cache First: la connessione X32 non deve ritardare il caricamento della PWA.
+    const fallback = url.pathname === "/addSong.html" ? "/addSong.html" : "/index.html";
+    event.respondWith((async () => {
+      const cached = await caches.match(request, { ignoreSearch: true });
+      if (cached) return cached;
+      const shell = await caches.match(fallback);
+      if (shell) return shell;
+      return cacheFirst(request, fallback);
+    })());
+    return;
+  }
 
-    const url = new URL(request.url);
-
-
-    // ---------------------------------
-    // NAVIGAZIONE HTML
-    // Network First
-    // ---------------------------------
-    if (request.mode === "navigate") {
-
-        event.respondWith(
-            fetch(request)
-                .then(response => {
-
-                    const clone = response.clone();
-
-                    caches.open(RUNTIME_CACHE)
-                        .then(cache => cache.put(request, clone));
-
-                    return response;
-                })
-                .catch(async () => {
-
-                    const cachedPage = await caches.match(request);
-
-                    if (cachedPage) {
-                        return cachedPage;
-                    }
-
-                    return caches.match("/index.html");
-                })
-        );
-
-        return;
-    }
-
-
-    // ---------------------------------
-    // FILE LOCALI
-    // Cache First
-    // ---------------------------------
-    if (url.origin === self.location.origin) {
-
-        event.respondWith(
-            caches.match(request)
-                .then(cachedResponse => {
-
-                    if (cachedResponse) {
-                        return cachedResponse;
-                    }
-
-                    return fetch(request)
-                        .then(response => {
-
-                            if (!response || !response.ok) {
-                                return response;
-                            }
-
-                            const clone = response.clone();
-
-                            caches.open(RUNTIME_CACHE)
-                                .then(cache => {
-                                    cache.put(request, clone);
-                                });
-
-                            return response;
-                        });
-                })
-        );
-
-        return;
-    }
-
-
-    // ---------------------------------
-    // CDN / FIREBASE JS
-    // Cache First
-    // ---------------------------------
-    if (STATIC_EXTERNAL_HOSTS.includes(url.hostname)) {
-
-        event.respondWith(
-            caches.match(request)
-                .then(cachedResponse => {
-
-                    if (cachedResponse) {
-                        return cachedResponse;
-                    }
-
-                    return fetch(request)
-                        .then(response => {
-
-                            const clone = response.clone();
-
-                            caches.open(RUNTIME_CACHE)
-                                .then(cache => {
-                                    cache.put(request, clone);
-                                });
-
-                            return response;
-                        });
-                })
-        );
-    }
-
+  if (url.origin === self.location.origin || STATIC_EXTERNAL_HOSTS.has(url.hostname)) {
+    event.respondWith(cacheFirst(request));
+  }
 });

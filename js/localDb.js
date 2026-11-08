@@ -308,3 +308,13 @@ export async function clearLocalDatabase() {
             reject(transaction.error);
     });
 }
+// Impostazioni locali della snapshot: non richiedono Firestore.
+export async function getLocalCliente() {
+    const db = await openLocalDb();
+    return new Promise((resolve, reject) => {
+        const transaction = db.transaction(STORE_META, "readonly");
+        const request = transaction.objectStore(STORE_META).get("cliente");
+        request.onsuccess = () => resolve(request.result?.value || {});
+        request.onerror = () => reject(request.error);
+    });
+}

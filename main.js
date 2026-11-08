@@ -5,7 +5,8 @@ import {
   hasLocalSnapshot,
   saveFullSnapshot,
   getLocalCollections,
-  getLocalSongsByCollection
+  getLocalSongsByCollection,
+  getLocalCliente
 } from "/js/localDb.js";
 
 import {
@@ -51,6 +52,77 @@ const idCliente = "POGGIOREALE";
 let db = null;
 
 let isSyncActive = true;
+let isInternetAvailable = false;
+let connectivityCheckInProgress = false;
+let firebaseInitializationPromise = null;
+let onlineServicesEnabled = false;
+
+function canUseServer() { return Boolean(db && isInternetAvailable); }
+function canSync() { return canUseServer() && isSyncActive; }
+function updateConnectionIndicator() {
+  const connected = canUseServer();
+  $("#syncIcon").attr("class", connected && isSyncActive ? "bi bi-cloud-check ms-2" : "bi bi-cloud-slash ms-2");
+  $("#syncIcon").attr("title", connected ? (isSyncActive ? "Sincronizzazione attiva" : "Sincronizzazione disattivata") : "Modalità locale");
+}
+
+// Un timeout limita solo il test, non l'avvio dell'app.
+async function probeInternet(timeoutMs = 2000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    // Il Service Worker NON deve intercettare questo URL dalla cache.
+    const url = `/index.html?connectivity-probe=${Date.now()}`;
+    const response = await fetch(url, { cache: "no-store", signal: controller.signal });
+    return response.ok && (response.headers.get("content-type") || "").includes("text/html");
+  } catch { return false; }
+  finally { clearTimeout(timer); }
+}
+
+async function initFirebaseClient() {
+  if (!firebaseInitializationPromise) {
+    firebaseInitializationPromise = (async () => {
+      const response = await fetch("config.json");
+      if (!response.ok) throw new Error("Configurazione Firebase non disponibile");
+      const config = (await response.json()).firebaseDB;
+      if (!config) throw new Error("Configurazione Firebase mancante");
+      db = getFirestore(initializeApp(config));
+      wireImportUI({ db, idCliente, bootstrapFromClienteDoc });
+      return db;
+    })().catch(err => { firebaseInitializationPromise = null; throw err; });
+  }
+  return firebaseInitializationPromise;
+}
+
+async function checkConnectionAndUpdate() {
+  if (connectivityCheckInProgress) return;
+  connectivityCheckInProgress = true;
+  try {
+    const reachable = await probeInternet();
+    if (!reachable) {
+      isInternetAvailable = false;
+      if (unsubscribeCliente) { unsubscribeCliente(); unsubscribeCliente = null; }
+      onlineServicesEnabled = false;
+      updateConnectionIndicator();
+      return;
+    }
+    await initFirebaseClient();
+    isInternetAvailable = true;
+    updateConnectionIndicator();
+    if (!onlineServicesEnabled) {
+      // Non blocca la UI: scarica il primo snapshot solo se manca.
+      void ensureLocalDatabase().then(async () => {
+        if (await hasLocalSnapshot()) await refreshUIFromLocalDatabase();
+      }).catch(console.warn);
+      if (isSyncActive) startClienteRealtime();
+      onlineServicesEnabled = true;
+    }
+  } catch (error) {
+    console.warn("[Connettività] Server non raggiungibile:", error);
+    isInternetAvailable = false;
+    updateConnectionIndicator();
+  } finally { connectivityCheckInProgress = false; }
+}
+
 let isRemoteSearchUpdate = false;
 let isTypingSearch = false;
 let timerCronologiaRicerca = null;
@@ -73,14 +145,13 @@ let songUnsubMap = new Map(); // songId -> unsubscribe
 // ========================
 window.toggleSync = async function () {
   isSyncActive = !isSyncActive;
-
-  if (isSyncActive) {
-    $("#syncIcon").attr("class", "bi bi-cloud ms-2");
-    $("#syncText").text("Live Sync Attiva");
-  } else {
-    $("#syncIcon").attr("class", "bi bi-cloud-slash ms-2");
-    $("#syncText").text("Live Sync Disattiva");
+  if (!isSyncActive && unsubscribeCliente) {
+    unsubscribeCliente();
+    unsubscribeCliente = null;
+  } else if (isSyncActive && canUseServer()) {
+    startClienteRealtime();
   }
+  updateConnectionIndicator();
 };
 
 // ========================
@@ -88,34 +159,8 @@ window.toggleSync = async function () {
 // ========================
 async function initializeFirebase() {
   try {
-    const response = await fetch("config.json");
-    if (!response.ok) throw new Error("Errore nel caricamento del file di configurazione");
-
-    const configurator = await response.json();
-    const firebaseConfig = configurator["firebaseDB"];
-    if (!firebaseConfig) {
-      throw new Error("Errore: Firebase config mancante (configurator['firebaseDB']).");
-    }
-
-    // const app = initializeApp(firebaseConfig);
-    // db = getFirestore(app);
-
-    // // eventi UI
-    // wireSearchUI();
-
-    const app = initializeApp(firebaseConfig);
-    db = getFirestore(app);
-
-    // Assicurati che IndexedDB sia pronto
-    // al primo avvio scarica tutto, successivamente non fa nulla.
-    await ensureLocalDatabase();
-
-    // eventi UI
+    // Registra subito le funzionalità locali, anche se il server non risponde.
     wireSearchUI();
-    // wireImportUI({ bootstrapFromClienteDoc }); // ✅ QUI
-    // tasto per caricare backup
-    wireImportUI({ db, idCliente, bootstrapFromClienteDoc });
-
 
     // Apri menu di esportazione / importazione
     $('#exportMenu').on('click', function () {
@@ -162,6 +207,7 @@ async function initializeFirebase() {
           document.getElementById('swal-export-json')
             .addEventListener('click', () => {
               Swal.close();
+              if (!canUseServer()) return Swal.fire("Modalità locale", "Il backup dal server richiede Internet.", "info");
               downloadBackupJSON({ db, idCliente });
             });
 
@@ -173,6 +219,7 @@ async function initializeFirebase() {
               // $('#importBackupFile').trigger('click');
               const input = document.getElementById('importBackupFile');
               input.value = '';
+              if (!canUseServer()) return Swal.fire("Modalità locale", "L'importazione sul server richiede Internet.", "info");
               input.click();
             });
         }
@@ -204,9 +251,18 @@ async function initializeFirebase() {
     // auth admin
     wireAdminAuth();
 
-    // bootstrap iniziale + listener realtime
+    // UI e dati sono pronti prima di qualsiasi richiesta remota.
     await bootstrapFromClienteDoc();
-    startClienteRealtime();
+    updateConnectionIndicator();
+
+    // Il controllo non viene atteso: l'app resta immediatamente utilizzabile.
+    void checkConnectionAndUpdate();
+    window.addEventListener("online", () => { void checkConnectionAndUpdate(); });
+    window.addEventListener("offline", () => { void checkConnectionAndUpdate(); });
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) void checkConnectionAndUpdate();
+    });
+    setInterval(() => { void checkConnectionAndUpdate(); }, 20000);
 
   } catch (error) {
     console.error("Errore initializeFirebase:", error);
@@ -464,21 +520,9 @@ async function bootstrapFromClienteDoc() {
     // 1. raccolte dal locale
     raccolte = await getLocalCollections();
 
-    // 2. settings ancora da Firestore, se disponibile
-    try {
-      const clienteRef = doc(db, "Clienti", idCliente);
-      const snap = await getDoc(clienteRef);
-
-      if (snap.exists()) {
-        const data = snap.data() || {};
-        settings = data.settings || {};
-      }
-    } catch (err) {
-      console.warn(
-        "[Bootstrap] Firestore non disponibile, uso impostazioni locali/default.",
-        err
-      );
-    }
+    // 2. Impostazioni salvate nella snapshot locale, senza attendere Firestore.
+    const cliente = await getLocalCliente();
+    settings = cliente.settings || {};
 
     currentSelectedRaccolta =
       settings.raccoltaSelezionata &&
@@ -537,6 +581,7 @@ async function bootstrapFromClienteDoc() {
 // REALTIME: DOC CLIENTE (UNICO LISTENER)
 // ========================
 function startClienteRealtime() {
+  if (!canSync()) return;
   const clienteRef = doc(db, "Clienti", idCliente);
 
   if (unsubscribeCliente) unsubscribeCliente();
@@ -647,31 +692,16 @@ function renderRaccolteButtons(raccolte, selected) {
       $("#raccolte-btnGroup .btn").removeClass("active");
       $(this).addClass("active");
 
-      // 1. cambio raccolta immediato usando IndexedDB
-      currentSelectedRaccolta = nomeRaccolta;
+      // aggiorna selezione su firestore se sync on
+      await aggiornaRaccoltaSelezionata(nomeRaccolta);
 
+      // carica brani subito in locale (anche se sync off)
+      currentSelectedRaccolta = nomeRaccolta;
       await loadCollectionSongs(nomeRaccolta);
 
-      // 2. rifiltra subito in locale
-      const q = String($("#search-bar").val() || "")
-        .toLowerCase()
-        .trim();
-
-      filterSongs(
-        q,
-        nomeRaccolta.toLowerCase()
-      );
-
-      // 3. sincronizza con Firebase senza bloccare la UI
-      if (navigator.onLine && isSyncActive) {
-        aggiornaRaccoltaSelezionata(nomeRaccolta)
-          .catch((error) => {
-            console.warn(
-              "Impossibile sincronizzare la raccolta selezionata:",
-              error
-            );
-          });
-      }
+      // rifiltra in base alla query corrente
+      const q = String($("#search-bar").val() || "").toLowerCase().trim();
+      filterSongs(q, nomeRaccolta.toLowerCase());
     });
 
     $group.append($btn);
@@ -789,6 +819,7 @@ async function handleCollectionAction(action, nomeRaccolta) {
 // ADMIN PASSWORD REQUEST
 // ========================
 async function richiediPasswordAdmin() {
+  if (!canUseServer()) return false;
   try {
     const clienteRef = doc(db, "Clienti", idCliente);
     const clienteSnap = await getDoc(clienteRef);
@@ -838,6 +869,7 @@ async function richiediPasswordAdmin() {
 // RENAME COLLECTION
 // ========================
 async function confermaRinominaRaccolta(nomeRaccolta) {
+  if (!canUseServer()) { Swal.fire("Modalità locale", "Per modificare i brani è necessaria una connessione Internet.", "info"); return; }
   const isAdmin = getCookie("isAdmin") === "1";
   if (!isAdmin) return;
 
@@ -928,6 +960,7 @@ async function confermaRinominaRaccolta(nomeRaccolta) {
 // DUPLICATE COLLECTION
 // ========================
 async function duplicaRaccolta(nomeRaccolta) {
+  if (!canUseServer()) { Swal.fire("Modalità locale", "Per modificare i brani è necessaria una connessione Internet.", "info"); return; }
   const isAdmin = getCookie("isAdmin") === "1";
   if (!isAdmin) return;
 
@@ -1165,6 +1198,7 @@ async function renameCollectionRequest({ idCliente, oldName, newName }) {
 // DELETE REQUEST WRAPPER
 // ========================
 async function confermaEliminazioneRaccolta(nomeRaccolta) {
+  if (!canUseServer()) { Swal.fire("Modalità locale", "Per modificare i brani è necessaria una connessione Internet.", "info"); return; }
   if ($("#open-auth").is(":hidden")) return;
 
   try {
@@ -1267,7 +1301,7 @@ function wireSearchUI() {
         }
       }, 1200);
 
-      if (!isSyncActive) return;
+      if (!canSync()) return;
 
       clearTimeout(searchDebounceTimer);
 
@@ -1294,7 +1328,7 @@ function wireSearchUI() {
     // rifiltra subito locale
     filterSongs(searchQuery, selectedRaccolta);
 
-    if (!isSyncActive) return;
+    if (!canSync()) return;
 
     try {
       await updateDoc(doc(db, "Clienti", idCliente), {
@@ -1313,7 +1347,7 @@ function wireSearchUI() {
 
     filterSongs("", selectedRaccolta);
 
-    if (!isSyncActive) return;
+    if (!canSync()) return;
 
     try {
       await updateDoc(doc(db, "Clienti", idCliente), {
@@ -1381,6 +1415,7 @@ function wireSearchUI() {
 // GESTIONE CRONOLOGIA
 // ========================
 async function salvaCronologiaRicerche(searchQuery) {
+  if (!canSync()) return;
   try {
 
     const clienteRef = doc(db, "Clienti", idCliente);
@@ -1551,7 +1586,7 @@ function renderSongs(nomeRaccolta, songsArray) {
 // UPDATE RACCOLTA SELEZIONATA (SYNC)
 // ========================
 async function aggiornaRaccoltaSelezionata(nomeRaccolta) {
-  if (!isSyncActive) return;
+  if (!canSync()) return;
 
   try {
     await updateDoc(doc(db, "Clienti", idCliente), {
@@ -1611,7 +1646,7 @@ async function updateSongInFirestore(songId, currentSearchQuery) {
   const updatedContent = $(`#song-content-${songId}`).html();
   const currentDate = new Date();
 
-  if (!isSyncActive) {
+  if (!canSync()) {
     // applica filtro locale comunque
     filterSongs(currentSearchQuery, (raccoltaSelezionata || "").toLowerCase());
     return;
@@ -1724,6 +1759,7 @@ function applyAdminVisibility() {
 // EDIT SONG
 // ========================
 window.editSong = async function (songId) {
+  if (!canUseServer()) { Swal.fire("Modalità locale", "Per modificare i brani è necessaria una connessione Internet.", "info"); return; }
   const $li = $(`#${songId}`);
   if ($li.data("edit-mode")) return;
   $li.data("edit-mode", true);
@@ -2094,6 +2130,7 @@ async function initializeTagify(songId) {
 // SAVE SONG
 // ========================
 window.saveSong = async function (songId) {
+  if (!canUseServer()) { Swal.fire("Modalità locale", "Per modificare i brani è necessaria una connessione Internet.", "info"); return; }
   const raccoltaSelezionata = $("#song-collection").val();
   const raccoltaPrecedente = $(`#${songId}`).attr("raccolta");
 
@@ -2166,6 +2203,7 @@ window.saveSong = async function (songId) {
 // DELETE SONG
 // ========================
 window.deleteSong = async function (songId) {
+  if (!canUseServer()) { Swal.fire("Modalità locale", "Per modificare i brani è necessaria una connessione Internet.", "info"); return; }
   try {
     const raccoltaSelezionata = $(`#${songId}`).attr("raccolta");
 
@@ -2808,7 +2846,7 @@ function wireLocalRefreshUI() {
     .off("click")
     .on("click", async function () {
 
-      if (!navigator.onLine) {
+      if (!(await probeInternet())) {
 
         await Swal.fire({
           icon: "warning",
